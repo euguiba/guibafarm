@@ -46,15 +46,15 @@ src/
   ui/             barra lateral
 ```
 
-- **Captura** (`main/capture.ts`): usa o protocolo de depuração do Chromium para ler respostas HTTP e frames de WebSocket dos hosts do jogo. Nada é injetado na página do jogo.
+- **Captura** (`core/cdp-capture.ts`): usa o protocolo de depuração do Chromium para ler respostas HTTP e frames de WebSocket dos hosts do jogo. Nada é injetado na página do jogo.
 - **Analisador do Huntera** (`games/huntera/analyzer.ts`): mede ouro e XP por hora em cada caça (mínimo de 5 minutos por trecho), recomenda a melhor caça para lucro e para XP, sugere troca quando a atual rende menos de 70% da melhor e alerta quando a XP para de subir por 10 minutos.
-- **Automação** (`main/actions.ts`): só liga quando a política do jogo permite e o módulo tem um `actor`. Hoje está desligada nos quatro jogos (veja abaixo).
+- **Automação** (`core/actions.ts`): só liga quando a política do jogo permite e o módulo tem um `actor`. Hoje está desligada nos quatro jogos (veja abaixo).
 
 ## Política por jogo
 
 | Jogo | Automação | Motivo |
 | --- | --- | --- |
-| Huntera | Desligada por enquanto | Falta ler as regras oficiais e mapear o protocolo |
+| Huntera | Desligada | As regras do jogo não aceitam automação; o módulo só lê e recomenda |
 | Poke Idle World | Desligada | Regras proíbem scripts, extensões e macros sem permissão da staff; limite de 4 contas |
 | Leveling Idle | Desligada | Sem regras públicas; confirmar com a staff |
 | RollerCoin | Desligada | Termos 1.10 e 2.2 proíbem bots e macros |

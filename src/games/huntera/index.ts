@@ -33,9 +33,9 @@ export const huntera: GameModule = {
     policy: {
       read: true,
       recommend: true,
-      // Ligar só depois de ler as regras oficiais e mapear o protocolo no teste de rede.
+      // As regras do Huntera não aceitam automação. O módulo só lê e recomenda.
       automate: false,
-      note: 'Automação desligada até lermos as regras oficiais do Huntera e mapearmos o protocolo.',
+      note: 'O Huntera não aceita automação. O navegador só lê o jogo e recomenda; quem joga é você.',
     },
   },
   reader: {

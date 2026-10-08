@@ -126,7 +126,6 @@ export const hunteraAnalyzer: Analyzer = {
         detail: `A caça atual rende ${fmt((money(currentStats) / money(bestMoney)) * 100)}% da melhor medida.`,
         score: money(bestMoney) - money(currentStats),
         unit: priced ? 'R$/h a mais' : 'ouro/h a mais',
-        action: { kind: 'change-hunt', params: { location: bestMoney.location } },
       });
     }
 

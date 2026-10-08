@@ -60,7 +60,8 @@ test('sugere trocar quando a caça atual rende muito menos', () => {
   const recs = hunteraAnalyzer.analyze(back, noPrices, 70 * MIN);
   const sw = recs.find((r) => r.id === 'switch-hunt');
   assert.ok(sw, 'deveria sugerir troca');
-  assert.deepEqual(sw.action, { kind: 'change-hunt', params: { location: 'Cyclops' } });
+  assert.equal(sw.title, 'Trocar Rotworms por Cyclops');
+  assert.equal(sw.action, undefined, 'Huntera não aceita automação');
 });
 
 test('alerta quando a XP para de subir', () => {
