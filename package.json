@@ -8,7 +8,8 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-ui.mjs",
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "dist": "npm run build && electron-builder --win nsis"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.0"
@@ -16,6 +17,33 @@
   "devDependencies": {
     "@types/node": "^22.20.5",
     "electron": "^44.7.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3"
+  },
+  "productName": "Navegador Idle",
+  "author": "Guilherme Freire de Siqueira",
+  "build": {
+    "appId": "com.navegadoridle.app",
+    "productName": "Navegador Idle",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "!dist/**/*.test.js",
+      "!dist/**/*.map",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Navegador Idle",
+      "runAfterFinish": true
+    }
   }
 }

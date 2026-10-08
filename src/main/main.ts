@@ -5,6 +5,9 @@ import { join } from 'node:path';
 import { AppCore } from '../core/app-core';
 import { ElectronHost } from './views';
 
+// Mesma pasta de dados no "npm start" e no app instalado, para não perder contas e logins.
+app.setPath('userData', join(app.getPath('appData'), 'navegador-idle'));
+
 app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 1440,
