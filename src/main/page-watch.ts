@@ -3,6 +3,7 @@
 // O log de combate é observado com MutationObserver para pegar cada linha nova uma vez.
 
 import type { WebContents } from 'electron';
+import { hostMatches } from '../core/cdp-capture';
 import type { PageReader, PageSnapshot } from '../sdk/types';
 
 const WORLD_ID = 1999;
@@ -44,14 +45,28 @@ function installScript(container: string | undefined, line: string | undefined):
   })()`;
 }
 
-export function watchPage(wc: WebContents, reader: PageReader, onSnapshot: (snap: PageSnapshot) => void): () => void {
+export function watchPage(
+  wc: WebContents,
+  hosts: string[],
+  reader: PageReader,
+  onSnapshot: (snap: PageSnapshot) => void,
+): () => void {
   const install = () => {
     wc.executeJavaScriptInIsolatedWorld(WORLD_ID, [{ code: installScript(reader.logContainer, reader.logLine) }]).catch(() => {});
   };
   wc.on('dom-ready', install);
+  // Página de erro (sem internet, servidor fora) mantém a URL do jogo; não ler nesse caso.
+  let failed = false;
+  const onStart = () => (failed = false);
+  const onFail = (_e: unknown, _code: number, _desc: string, _url: string, isMainFrame: boolean) => {
+    if (isMainFrame) failed = true;
+  };
+  wc.on('did-start-navigation', onStart);
+  wc.on('did-fail-load', onFail);
 
   const timer = setInterval(async () => {
-    if (wc.isDestroyed() || wc.isLoading()) return;
+    // Só lê páginas do jogo; telas de erro ou de outros sites ficam de fora.
+    if (wc.isDestroyed() || wc.isLoading() || failed || !hostMatches(wc.getURL(), hosts)) return;
     try {
       const res = (await wc.executeJavaScriptInIsolatedWorld(WORLD_ID, [
         { code: 'window.__niWatch ? window.__niWatch.read() : null' },
@@ -65,6 +80,9 @@ export function watchPage(wc: WebContents, reader: PageReader, onSnapshot: (snap
 
   return () => {
     clearInterval(timer);
-    if (!wc.isDestroyed()) wc.removeListener('dom-ready', install);
+    if (wc.isDestroyed()) return;
+    wc.removeListener('dom-ready', install);
+    wc.removeListener('did-start-navigation', onStart);
+    wc.removeListener('did-fail-load', onFail);
   };
 }

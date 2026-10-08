@@ -31,7 +31,7 @@ export class ElectronHost implements BrowserHost {
       const detach: Array<() => void> = [];
       if (game.manifest.policy.read) {
         detach.push(attachCapture(view.webContents, game.manifest.hosts, (ev) => feeds.onCaptured(ev)));
-        if (game.pageReader) detach.push(watchPage(view.webContents, game.pageReader, (snap) => feeds.onSnapshot(snap)));
+        if (game.pageReader) detach.push(watchPage(view.webContents, game.manifest.hosts, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
       this.detachers.set(profile.id, detach);
       // Links que abrem nova janela vão para o navegador padrão, fora da partição da conta.
