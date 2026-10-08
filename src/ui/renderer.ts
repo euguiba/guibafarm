@@ -4,10 +4,18 @@ interface UiGame {
   id: string;
   name: string;
   maxAccounts?: number;
+  roles?: UiRole[];
   hasAnalyzer: boolean;
   hasHunts: boolean;
   hasActor: boolean;
   policy: { read: boolean; recommend: boolean; automate: boolean; note: string };
+}
+
+interface UiRole {
+  id: string;
+  name: string;
+  short: string;
+  color: string;
 }
 
 interface UiProfile {
@@ -15,6 +23,8 @@ interface UiProfile {
   gameId: string;
   group: string;
   zoom?: number;
+  vocation?: string;
+  icon?: string;
   label: string;
   open: boolean;
   recording: boolean;
@@ -136,6 +146,9 @@ interface Window {
     listGroups(): Promise<{ groups: UiGroup[]; icons: string[] }>;
     setGroup(key: string): Promise<void>;
     setGroupIcon(key: string, icon: string): Promise<void>;
+    renameGroup(key: string, name: string): Promise<void>;
+    updateProfile(id: string, patch: { label: string; vocation: string; icon: string }): Promise<{ profile?: UiProfile; error?: string }>;
+    reorderProfiles(ids: string[]): Promise<void>;
     setZoom(id: string, zoom: number): Promise<number | undefined>;
     setOverlay(hidden: boolean): Promise<void>;
     relaunch(): Promise<void>;
@@ -191,11 +204,13 @@ interface UiGroup {
 }
 
 let groupIcons: string[] = [];
+let profilesCache: UiProfile[] = [];
 let activeGroup: UiGroup | undefined;
 
 // Barra lateral: faixa de páginas (uma por jogo) e a lista de contas da página aberta.
 async function renderProfiles(): Promise<void> {
   const [profiles, data] = await Promise.all([window.api.listProfiles(), window.api.listGroups()]);
+  profilesCache = profiles;
   groupIcons = data.icons;
   activeGroup = data.groups.find((g) => g.active);
   renderGroups(data.groups);
@@ -206,7 +221,7 @@ async function renderProfiles(): Promise<void> {
   for (const p of mine) list.append(profileItem(p, gameById(p.gameId)!));
   if (profiles.length === 0) list.append(el('li', 'empty-note', 'Nenhuma conta ainda. Adicione a primeira abaixo.'));
 
-  $('group-icon').textContent = activeGroup?.icon ?? '🎮';
+  $('group-icon').replaceChildren(iconNode(activeGroup?.icon ?? 'gamepad-2', 18));
   $('group-title').textContent = activeGroup?.label ?? 'Contas';
   $('group-count').textContent = activeGroup ? (activeGroup.max ? `${activeGroup.count}/${activeGroup.max}` : String(activeGroup.count)) : '';
   $('group-count').hidden = !activeGroup;
@@ -218,7 +233,8 @@ function renderGroups(groups: UiGroup[]): void {
   const box = $('group-list');
   box.replaceChildren();
   for (const g of groups) {
-    const b = el('button', 'page', g.icon);
+    const b = el('button', 'page');
+    b.append(iconNode(g.icon, 19));
     if (g.active) b.classList.add('active');
     b.title = `${g.label} · ${g.count} ${g.count === 1 ? 'conta' : 'contas'}${g.open ? `, ${g.open} aberta${g.open === 1 ? '' : 's'}` : ''}`;
     if (g.open) b.append(el('span', 'page-badge', String(g.open)));
@@ -236,8 +252,14 @@ function renderRailAccounts(profiles: UiProfile[]): void {
   const rail = $('rail-accounts');
   rail.replaceChildren();
   for (const p of profiles) {
-    const b = el('button', 'avatar', initials(p.label));
-    b.style.setProperty('--acc', colorOf(p.id));
+    const b = el('button', 'avatar');
+    const role = roleOf(p);
+    if (role) { b.textContent = role.short; b.style.setProperty('--acc', role.color); }
+    else {
+      b.style.setProperty('--acc', colorOf(p.id));
+      if (p.icon && ICONS[p.icon]) b.append(iconNode(p.icon, 16));
+      else b.textContent = initials(p.label);
+    }
     if (p.open) b.classList.add('open');
     if (p.id === selectedId) b.classList.add('selected');
     b.title = `${p.label}${p.open ? '' : ' (fechada)'}`;
@@ -249,18 +271,42 @@ function renderRailAccounts(profiles: UiProfile[]): void {
   }
 }
 
-function renderIconPicker(): void {
-  const picker = $('icon-picker');
-  picker.replaceChildren();
-  for (const icon of groupIcons) {
-    const b = el('button', 'pick', icon);
-    b.addEventListener('click', async () => {
-      if (activeGroup) await window.api.setGroupIcon(activeGroup.key, icon);
-      picker.hidden = true;
-      await renderProfiles();
+// Editor da página: nome próprio (ex.: "Equipe Principal") e ícone.
+function renderGroupEditor(): void {
+  const box = $('icon-picker');
+  box.replaceChildren();
+  if (!activeGroup) return;
+  const key = activeGroup.key;
+  const input = document.createElement('input');
+  input.value = activeGroup.label;
+  input.maxLength = 60;
+  input.placeholder = 'Nome da página';
+  const grid = el('div', 'icon-grid');
+  let icon = activeGroup.icon;
+  for (const id of groupIcons) {
+    const b = el('button', 'pick');
+    b.append(iconNode(id, 16));
+    b.classList.toggle('active', id === icon);
+    b.addEventListener('click', () => {
+      icon = id;
+      grid.querySelectorAll('.pick').forEach((x) => x.classList.toggle('active', x === b));
     });
-    picker.append(b);
+    grid.append(b);
   }
+  const row = el('div', 'row');
+  const save = el('button', 'primary grow', 'Salvar');
+  const cancel = el('button', 'ghost', 'Cancelar');
+  save.addEventListener('click', async () => {
+    await window.api.renameGroup(key, input.value);
+    if (ICONS[icon]) await window.api.setGroupIcon(key, icon);
+    box.hidden = true;
+    await renderProfiles();
+  });
+  cancel.addEventListener('click', () => { box.hidden = true; });
+  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') save.click(); if (ev.key === 'Escape') cancel.click(); });
+  row.append(save, cancel);
+  box.append(el('label', 'field-label', 'Nome da página'), input, el('label', 'field-label', 'Ícone'), grid, row);
+  setTimeout(() => input.focus(), 0);
 }
 
 async function setCollapsed(collapsed: boolean): Promise<void> {
@@ -303,24 +349,52 @@ function initials(label: string): string {
   return text.toUpperCase() || '?';
 }
 
+function roleOf(p: UiProfile): UiRole | undefined {
+  return gameById(p.gameId)?.roles?.find((r) => r.id === p.vocation);
+}
+
+/** Selo da conta: vocação do jogo (sigla colorida), ícone escolhido ou as iniciais. */
+function badgeOf(p: UiProfile): HTMLElement {
+  const role = roleOf(p);
+  if (role) {
+    const b = el('span', 'badge-voc', role.short);
+    b.style.setProperty('--voc', role.color);
+    b.title = role.name;
+    return b;
+  }
+  const b = el('span', 'badge-ico');
+  b.style.setProperty('--acc', colorOf(p.id));
+  if (p.icon && ICONS[p.icon]) b.append(iconNode(p.icon, 14));
+  else b.textContent = initials(p.label);
+  return b;
+}
+
+let editingId: string | undefined;
+let dragId: string | undefined;
+
 function profileItem(p: UiProfile, game: UiGame): HTMLElement {
-  const li = el('li');
+  if (p.id === editingId) return profileEditor(p, game);
+  const li = el('li', 'acct');
   li.style.setProperty('--acc', colorOf(p.id));
+  li.dataset.id = p.id;
   if (p.id === selectedId) li.classList.add('selected');
   if (p.open) li.classList.add('open');
-  const top = el('div', 'item-top');
-  top.append(el('i', 'dot'), el('div', 'name', p.label), el('i', 'status'));
-  const sub = el('div', 'item-sub');
-  sub.append(el('span', undefined, p.open ? 'Aberta' : 'Fechada'));
-  if (p.recording) sub.append(el('span', 'rec-on', 'gravando'));
-  if (p.open) {
-    const metric = el('span', 'item-metric');
-    metric.dataset.profile = p.id;
-    sub.append(metric);
-  }
+
+  const row = el('div', 'acct-row');
+  const grip = el('span', 'grip', '⋮⋮');
+  grip.title = 'Arraste para mudar a ordem';
+  const name = el('span', 'acct-name', p.label);
+  const role = roleOf(p);
+  name.title = `${p.label}${role ? ` · ${role.name}` : ''}${p.open ? '' : ' · fechada'}`;
+  const metric = el('span', 'item-metric');
+  if (p.open) metric.dataset.profile = p.id;
+  row.append(grip, badgeOf(p), name, metric, el('i', 'status'));
+  if (p.recording) row.append(el('span', 'rec-on', '●'));
+
   const actions = el('div', 'actions');
-  const button = (label: string, onClick: () => Promise<void>) => {
-    const b = el('button', undefined, label);
+  const button = (label: string, title: string, onClick: () => Promise<void>, cls?: string) => {
+    const b = el('button', cls, label);
+    b.title = title;
     b.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       await onClick();
@@ -328,21 +402,115 @@ function profileItem(p: UiProfile, game: UiGame): HTMLElement {
     });
     actions.append(b);
   };
-  if (p.open) button('Fechar', () => window.api.closeProfile(p.id));
-  else button('Abrir', async () => { await window.api.openProfile(p.id); await select(p.id); });
+  if (p.open) button('■ Fechar', 'Fechar a conta', () => window.api.closeProfile(p.id));
+  else button('▶ Abrir', 'Abrir a conta', async () => { await window.api.openProfile(p.id); await select(p.id); }, 'primary');
+  button('✎ Editar', 'Nome, vocação e ícone', async () => { editingId = p.id; });
   if (game.policy.read) {
-    button(p.recording ? 'Parar gravação' : 'Gravar', async () => {
+    button(p.recording ? 'Parar gravação' : 'Gravar', 'Gravar o tráfego para ajustar o leitor', async () => {
       const dir = await window.api.setRecording(p.id, !p.recording);
       if (!p.recording) alert(`Gravando o tráfego desta conta em:\n${dir}`);
     });
   }
-  button('Remover', async () => {
+  button('Remover', 'Remover a conta', async () => {
     if (!confirm(`Remover a conta "${p.label}"? O login salvo nesta partição deixa de ser usado.`)) return;
     await window.api.removeProfile(p.id);
     if (selectedId === p.id) { selectedId = undefined; $('detail').hidden = true; }
-  });
-  li.append(top, sub, actions);
+  }, 'danger');
+
+  li.append(row, actions);
   li.addEventListener('click', () => void select(p.id));
+
+  // Arrastar para reordenar dentro da página.
+  li.draggable = true;
+  li.addEventListener('dragstart', (ev) => { dragId = p.id; li.classList.add('dragging'); ev.dataTransfer?.setData('text/plain', p.id); });
+  li.addEventListener('dragend', () => { dragId = undefined; li.classList.remove('dragging'); });
+  li.addEventListener('dragover', (ev) => { if (dragId && dragId !== p.id) { ev.preventDefault(); li.classList.add('drop'); } });
+  li.addEventListener('dragleave', () => li.classList.remove('drop'));
+  li.addEventListener('drop', (ev) => {
+    ev.preventDefault();
+    li.classList.remove('drop');
+    if (dragId && dragId !== p.id) void moveProfile(dragId, p.id);
+  });
+  return li;
+}
+
+/** Põe `from` no lugar de `to` sem mexer na ordem das outras páginas. */
+async function moveProfile(from: string, to: string): Promise<void> {
+  const all = profilesCache.map((p) => p.id);
+  const group = profilesCache.filter((p) => p.group === activeGroup?.key).map((p) => p.id);
+  const order = group.filter((id) => id !== from);
+  order.splice(order.indexOf(to) + (group.indexOf(from) < group.indexOf(to) ? 1 : 0), 0, from);
+  let i = 0;
+  const next = all.map((id) => (group.includes(id) ? order[i++] : id));
+  await window.api.reorderProfiles(next);
+  await renderProfiles();
+}
+
+function profileEditor(p: UiProfile, game: UiGame): HTMLElement {
+  const li = el('li', 'acct editing');
+  li.style.setProperty('--acc', colorOf(p.id));
+  let vocation = p.vocation ?? '';
+  let icon = p.icon ?? '';
+
+  const nameInput = document.createElement('input');
+  nameInput.value = p.label;
+  nameInput.maxLength = 40;
+  nameInput.placeholder = 'Nome da conta';
+  li.append(el('label', 'field-label', 'Nome'), nameInput);
+
+  if (game.roles?.length) {
+    li.append(el('label', 'field-label', 'Vocação'));
+    const chips = el('div', 'chips');
+    const chip = (id: string, text: string, color?: string) => {
+      const c = el('button', 'chip', text);
+      if (color) c.style.setProperty('--voc', color);
+      c.classList.toggle('active', vocation === id);
+      c.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        vocation = id;
+        chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c));
+      });
+      chips.append(c);
+    };
+    chip('', 'Nenhuma');
+    for (const r of game.roles) chip(r.id, `${r.short} · ${r.name}`, r.color);
+    li.append(chips);
+  }
+
+  li.append(el('label', 'field-label', game.roles?.length ? 'Ícone (aparece quando não há vocação)' : 'Ícone'));
+  const grid = el('div', 'icon-grid');
+  const pick = (id: string) => {
+    const b = el('button', 'pick');
+    if (id) b.append(iconNode(id, 16));
+    else { b.textContent = initials(nameInput.value || p.label); b.title = 'Iniciais do nome'; }
+    b.classList.toggle('active', icon === id);
+    b.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      icon = id;
+      grid.querySelectorAll('.pick').forEach((x) => x.classList.toggle('active', x === b));
+    });
+    grid.append(b);
+  };
+  pick('');
+  for (const id of groupIcons) pick(id);
+  li.append(grid);
+
+  const warn = el('p', 'warning');
+  warn.hidden = true;
+  const row = el('div', 'row');
+  const save = el('button', 'primary grow', 'Salvar');
+  const cancel = el('button', 'ghost', 'Cancelar');
+  save.addEventListener('click', async () => {
+    const res = await window.api.updateProfile(p.id, { label: nameInput.value, vocation, icon });
+    if (res.error) { warn.textContent = res.error; warn.hidden = false; return; }
+    editingId = undefined;
+    await renderProfiles();
+  });
+  cancel.addEventListener('click', async () => { editingId = undefined; await renderProfiles(); });
+  nameInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') save.click(); if (ev.key === 'Escape') cancel.click(); });
+  row.append(save, cancel);
+  li.append(warn, row);
+  setTimeout(() => nameInput.focus(), 0);
   return li;
 }
 
@@ -373,9 +541,10 @@ function renderTiles(data: UiTiles): void {
     head.style.height = `${t.head}px`;
     let host = '';
     try { host = t.url ? new URL(t.url).host : ''; } catch { host = ''; }
+    const cached = profilesCache.find((p) => p.id === id);
     head.append(
-      el('i', 'dot'),
-      el('span', 'tile-name', t.label ?? ''),
+      cached ? badgeOf(cached) : el('i', 'dot'),
+      el('span', 'tile-name', cached?.label ?? t.label ?? ''),
       el('span', 'tile-game', t.game ?? ''),
       el('span', 'tile-url', host),
       el('span', 'tile-metric', ''),
@@ -427,9 +596,14 @@ async function pollMetrics(): Promise<void> {
     const m = await window.api.getMetrics();
     $('m-cpu').textContent = `${m.cpu.toFixed(1)}%`;
     $('m-ram').textContent = `${Math.round(m.ramMb)} MB`;
-    document.querySelectorAll<HTMLElement>('.tile-metric, .item-metric').forEach((span) => {
+    document.querySelectorAll<HTMLElement>('.tile-metric').forEach((span) => {
       const v = m.perProfile[span.dataset.profile ?? ''];
       span.textContent = v ? `CPU ${v.cpu.toFixed(1)}%  ·  ${Math.round(v.ramMb)} MB` : '';
+    });
+    document.querySelectorAll<HTMLElement>('.item-metric[data-profile]').forEach((span) => {
+      const v = m.perProfile[span.dataset.profile ?? ''];
+      span.textContent = v ? `${v.cpu.toFixed(1)}%` : '';
+      span.title = v ? `CPU ${v.cpu.toFixed(1)}% · RAM ${Math.round(v.ramMb)} MB` : '';
     });
   } catch {
     // janela fechando
@@ -696,9 +870,11 @@ async function init(): Promise<void> {
   $('expand').addEventListener('click', () => void setCollapsed(false));
   $('new-page').addEventListener('click', () => { void setCollapsed(false); showAddForm(true, true); });
   $('cancel-add').addEventListener('click', () => showAddForm(false));
+  $('group-title').addEventListener('click', () => $('group-icon').click());
+  $('group-title').title = 'Clique para editar o nome e o ícone desta página';
   $('group-icon').addEventListener('click', () => {
     const picker = $('icon-picker');
-    if (picker.hidden) renderIconPicker();
+    if (picker.hidden) renderGroupEditor();
     picker.hidden = !picker.hidden;
   });
   initSettings();

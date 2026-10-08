@@ -17,6 +17,10 @@ export interface Profile {
   url?: string;
   /** Zoom da página desta conta (1 = 100%). */
   zoom?: number;
+  /** Vocação/classe no jogo (id de GameRole), quando o jogo tem. */
+  vocation?: string;
+  /** Ícone escolhido para a conta (id do conjunto de ícones). */
+  icon?: string;
 }
 
 export interface Settings {
@@ -27,6 +31,8 @@ export interface Settings {
   /** Página de jogo aberta na barra lateral; as telas mostram só as contas dela. */
   activeGroup?: string;
   groupIcons: Record<string, string>;
+  /** Nome próprio de cada página, ex.: "Huntera – Equipe Principal". */
+  groupNames: Record<string, string>;
   /** Resolução de todas as telas (1 = nativa da tela do PC, 0.75, 0.5). */
   resolution: number;
   /** Resolução das telas fora de foco quando o turbo está ligado. */
@@ -42,6 +48,7 @@ export const DEFAULT_SETTINGS: Settings = {
   turbo: false,
   sidebarCollapsed: false,
   groupIcons: {},
+  groupNames: {},
   resolution: 1,
   turboResolution: 0.5,
   defaultZoom: 1,
@@ -91,12 +98,25 @@ export class Store {
     return profile;
   }
 
-  updateProfile(id: string, patch: Partial<Pick<Profile, 'label' | 'zoom'>>): Profile | undefined {
+  updateProfile(id: string, patch: Partial<Pick<Profile, 'label' | 'zoom' | 'vocation' | 'icon'>>): Profile | undefined {
     const profile = this.profiles.find((p) => p.id === id);
     if (!profile) return undefined;
-    Object.assign(profile, patch);
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined || value === '') delete (profile as unknown as Record<string, unknown>)[key];
+      else (profile as unknown as Record<string, unknown>)[key] = value;
+    }
     this.saveProfiles();
     return profile;
+  }
+
+  /** Nova ordem das contas (as que não vierem na lista ficam no fim, na ordem de antes). */
+  reorderProfiles(ids: string[]): void {
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    this.profiles = this.profiles
+      .map((p, i) => ({ p, k: rank.get(p.id) ?? ids.length + i }))
+      .sort((a, b) => a.k - b.k)
+      .map((x) => x.p);
+    this.saveProfiles();
   }
 
   removeProfile(id: string): void {

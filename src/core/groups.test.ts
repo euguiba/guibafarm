@@ -11,7 +11,8 @@ test('cada jogo é um grupo e cada site avulso vira o seu', () => {
 });
 
 test('ícone escolhido vence o padrão do jogo', () => {
-  assert.equal(groupIcon('huntera', {}), '⚔️');
-  assert.equal(groupIcon('huntera', { huntera: '🐉' }), '🐉');
-  assert.equal(groupIcon('site:x.com', {}), '🌐');
+  assert.equal(groupIcon('huntera', {}), 'swords');
+  assert.equal(groupIcon('huntera', { huntera: 'crown' }), 'crown');
+  assert.equal(groupIcon('site:x.com', {}), 'gamepad-2');
+  assert.equal(groupLabel('huntera', () => 'Huntera', { huntera: 'Huntera – Equipe Principal' }), 'Huntera – Equipe Principal');
 });

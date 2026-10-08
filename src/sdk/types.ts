@@ -159,7 +159,17 @@ export interface GameManifest {
   hosts: string[];
   /** Limite de contas das regras do jogo; o navegador não deixa passar disso. */
   maxAccounts?: number;
+  /** Vocações/classes do jogo, para marcar cada conta. Sem lista, o perfil não mostra nada. */
+  roles?: GameRole[];
   policy: GamePolicy;
+}
+
+export interface GameRole {
+  id: string;
+  name: string;
+  /** Sigla curta mostrada no selo da conta. */
+  short: string;
+  color: string;
 }
 
 export interface GameModule {

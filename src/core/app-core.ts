@@ -9,7 +9,7 @@ import { detectAlerts, type Alert } from './alerts';
 import { Assistant } from './assistant';
 import { Store, type Profile, type Settings } from './store';
 import { isLayoutMode, toAddress, type LayoutMode } from './tiles';
-import { GROUP_ICONS, groupIcon, groupKey, groupLabel } from './groups';
+import { ICON_IDS, groupIcon, groupKey, groupLabel } from './groups';
 
 export type { LayoutMode } from './tiles';
 export type UiChannel = 'state' | 'recommendations' | 'log' | 'alert';
@@ -239,7 +239,7 @@ export class AppCore {
         if (!g) {
           g = {
             key,
-            label: groupLabel(key, (id) => findGame(id)?.manifest.name),
+            label: groupLabel(key, (id) => findGame(id)?.manifest.name, settings.groupNames),
             icon: groupIcon(key, settings.groupIcons),
             count: 0,
             open: 0,
@@ -251,14 +251,37 @@ export class AppCore {
         g.count++;
         if (open.includes(p.id)) g.open++;
       }
-      return { groups: [...groups.values()], icons: GROUP_ICONS };
+      return { groups: [...groups.values()], icons: ICON_IDS };
     },
 
     'group:set': (key: string) => this.setActiveGroup(String(key)),
 
     'group:icon': (key: string, icon: string) => {
-      if (!GROUP_ICONS.includes(icon)) return;
+      if (!ICON_IDS.includes(icon)) return;
       this.store.setSettings({ groupIcons: { ...this.store.getSettings().groupIcons, [key]: icon } });
+    },
+
+    'group:rename': (key: string, name: string) => {
+      const names = { ...this.store.getSettings().groupNames };
+      const clean = String(name ?? '').trim().slice(0, 60);
+      if (clean) names[key] = clean;
+      else delete names[key];
+      this.store.setSettings({ groupNames: names });
+    },
+
+    'profiles:update': (id: string, patch: { label?: string; vocation?: string; icon?: string }) => {
+      const profile = this.store.getProfile(id);
+      if (!profile) return { error: 'Conta não encontrada.' };
+      const roles = this.gameOf(profile).manifest.roles ?? [];
+      const label = String(patch.label ?? profile.label).trim().slice(0, 40);
+      if (!label) return { error: 'Dê um nome para a conta.' };
+      const vocation = roles.some((r) => r.id === patch.vocation) ? patch.vocation : '';
+      const icon = patch.icon && ICON_IDS.includes(patch.icon) ? patch.icon : '';
+      return { profile: this.store.updateProfile(id, { label, vocation, icon }) };
+    },
+
+    'profiles:reorder': (ids: string[]) => {
+      if (Array.isArray(ids)) this.store.reorderProfiles(ids.map(String));
     },
 
     'zoom:set': (id: string, zoom: number) => {

@@ -13,7 +13,7 @@ import { attachCapture } from './capture';
 import { watchPage } from './page-watch';
 
 /** Largura da barra lateral aberta (faixa de páginas + lista de contas) e recolhida (só a faixa); igual ao CSS. */
-export const SIDEBAR_WIDTH = 288;
+export const SIDEBAR_WIDTH = 304;
 export const SIDEBAR_COLLAPSED = 56;
 /** Altura da barra de cima (grade, endereço, medidores e turbo numa linha só); igual ao CSS. */
 export const TOPBAR_HEIGHT = 52;

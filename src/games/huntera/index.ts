@@ -31,6 +31,12 @@ export const huntera: GameModule = {
     hosts: ['huntera.com.br'],
     // Regras: ferramentas de apoio podem abrir até 4 contas.
     maxAccounts: 4,
+    roles: [
+      { id: 'knight', name: 'Knight', short: 'EK', color: '#f87171' },
+      { id: 'paladin', name: 'Paladino', short: 'RP', color: '#fbbf24' },
+      { id: 'druid', name: 'Druida', short: 'ED', color: '#34d399' },
+      { id: 'sorcerer', name: 'Sorcerer', short: 'MS', color: '#a78bfa' },
+    ],
     policy: {
       read: true,
       recommend: true,

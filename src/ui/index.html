@@ -20,7 +20,7 @@
 
     <div id="panel">
       <div class="panel-head">
-        <button id="group-icon" class="group-icon" title="Trocar o ícone desta página">🎮</button>
+        <button id="group-icon" class="group-icon" title="Editar o nome e o ícone desta página"></button>
         <span id="group-title">Contas</span>
         <span id="group-count" class="pill"></span>
         <button id="collapse" class="ghost" title="Recolher a barra (Ctrl+B)">‹</button>
@@ -29,8 +29,10 @@
 
       <div class="side-body">
       <section>
-        <ul id="profile-list" class="profile-list"></ul>
-        <button id="new-account" class="add-account">+ Adicionar conta</button>
+        <div class="group-card">
+          <ul id="profile-list" class="profile-list"></ul>
+          <button id="new-account" class="add-account">+ Adicionar conta</button>
+        </div>
         <form id="add-form" hidden>
           <select id="game-select"></select>
           <input id="site-input" placeholder="Endereço do site, ex.: jogo.com.br" hidden />
@@ -156,6 +158,7 @@
       <p id="restart-note" class="restart" hidden>Reabra o app para trocar a aceleração de hardware. <button id="relaunch" class="primary small">Reabrir agora</button></p>
     </div>
   </div>
+  <script src="icons.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

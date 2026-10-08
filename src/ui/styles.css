@@ -107,7 +107,7 @@ button.primary:hover { background: rgba(224, 176, 74, 0.22); }
 
 /* ---------- Barra lateral: faixa de páginas + lista de contas ---------- */
 #sidebar {
-  width: 288px;
+  width: 304px;
   flex: none;
   display: flex;
   background: var(--side);
@@ -191,11 +191,7 @@ button.primary:hover { background: rgba(224, 176, 74, 0.22); }
 .group-icon:hover { background: var(--raised); }
 #group-title { flex: 1; font-weight: 800; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #collapse { font-size: 18px; line-height: 1; padding: 2px 9px 4px; }
-#icon-picker { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 8px; border-bottom: 1px solid var(--divider); background: var(--surface); }
-#icon-picker[hidden] { display: none; }
-.pick { padding: 4px 0; font-size: 16px; background: transparent; border-color: transparent; }
-.pick:hover { background: var(--raised); }
-.side-body { flex: 1; overflow-y: auto; padding: 4px 0 16px; }
+.side-body { flex: 1; min-width: 0; overflow-y: auto; overflow-x: clip; padding: 4px 0 16px; }
 .side-body section { padding: 12px 12px; border-bottom: 1px solid var(--divider); }
 .side-body section:last-child { border-bottom: none; }
 
@@ -252,31 +248,98 @@ body.collapsed #rail-accounts { display: flex; flex-direction: column; align-ite
 }
 .avatar.selected { box-shadow: 0 0 0 2px #0c0f18, 0 0 0 4px var(--acc); }
 
-/* ---------- Contas da página ---------- */
-.profile-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.profile-list li {
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  padding: 8px 10px;
+/* ---------- Contas da página (cartão do grupo) ---------- */
+.ico { display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+.group-card {
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 40%), var(--field);
+  padding: 6px;
+}
+.profile-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.acct {
+  position: relative;
+  border: 1px solid var(--divider);
+  border-radius: 9px;
+  background: var(--surface);
   cursor: pointer;
-  transition: background var(--ease), border-color var(--ease);
+  transition: background var(--ease), border-color var(--ease), box-shadow var(--ease);
 }
-.profile-list li:hover { background: var(--surface); }
-.profile-list li.selected {
-  background: color-mix(in srgb, var(--acc) 8%, var(--surface));
-  border-color: color-mix(in srgb, var(--acc) 55%, transparent);
+.acct:hover { border-color: #313950; }
+.acct.selected {
+  border-color: color-mix(in srgb, var(--acc) 60%, transparent);
+  box-shadow: inset 3px 0 0 var(--acc);
+  background: color-mix(in srgb, var(--acc) 6%, var(--surface));
 }
-.item-top { display: flex; align-items: center; gap: 9px; }
-.item-top .name { flex: 1; font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct.dragging { opacity: 0.45; }
+.acct.drop { border-color: var(--gold); border-style: dashed; }
+.acct-row { display: flex; align-items: center; gap: 8px; padding: 7px 9px 7px 6px; min-height: 38px; }
+.grip { color: #3d4560; font-size: 11px; letter-spacing: -2px; cursor: grab; user-select: none; padding: 0 2px; }
+.acct:hover .grip { color: var(--faint); }
+.badge-voc, .badge-ico {
+  flex: none;
+  min-width: 26px;
+  height: 22px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.badge-voc {
+  color: var(--voc);
+  background: color-mix(in srgb, var(--voc) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--voc) 45%, transparent);
+}
+.badge-ico {
+  color: var(--acc);
+  background: color-mix(in srgb, var(--acc) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--acc) 35%, transparent);
+}
+.acct-name { flex: 1; min-width: 0; font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-role { margin-left: 6px; font-weight: 500; font-size: 11.5px; color: var(--faint); }
+.item-metric { font-size: 11px; font-weight: 700; color: var(--ok); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acct:not(.open) .item-metric { color: var(--faint); font-weight: 600; }
 .status { width: 7px; height: 7px; border-radius: 50%; background: #39405a; flex: none; }
-li.open .status { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15); }
-.item-sub { display: flex; gap: 10px; padding-left: 18px; font-size: 12px; color: var(--faint); }
-li.open .item-sub > span:first-child { color: var(--ok); }
-.item-metric { font-variant-numeric: tabular-nums; }
-.rec-on { color: var(--danger); }
-.profile-list .actions { display: none; gap: 4px; margin-top: 8px; padding-left: 18px; flex-wrap: wrap; }
-.profile-list li.selected .actions { display: flex; }
-.profile-list .actions button { padding: 3px 9px; font-size: 11.5px; background: var(--field); }
+.acct.open .status { background: var(--ok); box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.15); }
+.rec-on { color: var(--danger); font-size: 10px; }
+.acct .actions { display: none; gap: 4px; padding: 0 8px 8px 38px; flex-wrap: wrap; }
+.acct.selected .actions { display: flex; }
+.acct .actions button { padding: 3px 8px; font-size: 11.5px; background: var(--field); }
+.acct .actions button.primary { background: var(--gold-soft); }
+.acct .actions button.danger:hover { color: var(--danger); border-color: rgba(248, 113, 113, 0.5); }
+.add-account {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  color: var(--text2);
+  background: transparent;
+  border: 1px dashed var(--edge);
+  border-radius: 9px;
+}
+.add-account:hover { color: var(--gold-hi); background: var(--gold-soft); border-color: rgba(224, 176, 74, 0.55); }
+
+/* Editor da conta e da página */
+.acct.editing { cursor: default; padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; border-color: rgba(224, 176, 74, 0.5); }
+.acct.editing .row button { min-width: 0; }
+#group-title { cursor: pointer; }
+.field-label { font-size: 11px; font-weight: 700; color: var(--faint); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { padding: 3px 9px; font-size: 11.5px; border-radius: 999px; background: var(--field); --voc: var(--text2); }
+.chip.active { color: var(--voc); border-color: color-mix(in srgb, var(--voc) 60%, transparent); background: color-mix(in srgb, var(--voc) 14%, transparent); }
+.icon-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
+.pick { height: 28px; padding: 0; font-size: 11px; font-weight: 800; color: var(--text2); background: var(--field); border-color: transparent; border-radius: 7px; }
+.pick:hover { color: var(--text); background: var(--raised); }
+.pick.active { color: var(--gold-hi); border-color: rgba(224, 176, 74, 0.6); background: var(--gold-soft); }
+#icon-picker { display: grid; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--divider); background: var(--surface); }
+#icon-picker[hidden] { display: none; }
+.group-icon { color: var(--gold-hi); }
+.page { color: var(--text2); }
+.page.active { color: var(--gold-hi); }
+.avatar .ico { color: var(--acc); }
 
 /* ---------- Painel da conta ---------- */
 ul { list-style: none; margin: 0; padding: 0; }

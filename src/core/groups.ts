@@ -4,14 +4,18 @@
 import type { Profile } from './store';
 
 const DEFAULT_ICONS: Record<string, string> = {
-  huntera: '⚔️',
-  'poke-idle-world': '🐾',
-  'leveling-idle': '🗡️',
-  rollercoin: '🪙',
+  huntera: 'swords',
+  'poke-idle-world': 'paw-print',
+  'leveling-idle': 'sword',
+  rollercoin: 'coins',
 };
 
-/** Ícones que a pessoa pode escolher para uma página. */
-export const GROUP_ICONS = ['⚔️', '🗡️', '🛡️', '🏹', '🔮', '🐉', '🐾', '🔥', '💎', '👑', '🪙', '⭐', '🍀', '🚀', '🎯', '🌐'];
+/** Ícones que a pessoa pode escolher para páginas e contas; os desenhos ficam em src/ui/icons.ts. */
+export const ICON_IDS = [
+  'swords', 'sword', 'shield', 'axe', 'hammer', 'wand-sparkles', 'flask-conical', 'skull', 'crown',
+  'gem', 'coins', 'trophy', 'gamepad-2', 'dices', 'ghost', 'paw-print', 'flame', 'zap', 'heart',
+  'star', 'sparkles', 'moon', 'crosshair', 'castle', 'pickaxe', 'key', 'rocket',
+];
 
 export function groupKey(profile: Pick<Profile, 'gameId' | 'url'>): string {
   if (profile.gameId !== 'site') return profile.gameId;
@@ -22,11 +26,12 @@ export function groupKey(profile: Pick<Profile, 'gameId' | 'url'>): string {
   }
 }
 
-export function groupLabel(key: string, gameName: (id: string) => string | undefined): string {
+export function groupLabel(key: string, gameName: (id: string) => string | undefined, names: Record<string, string> = {}): string {
+  if (names[key]) return names[key];
   if (key.startsWith('site:')) return key.slice(5) || 'Outro site';
   return gameName(key) ?? key;
 }
 
 export function groupIcon(key: string, chosen: Record<string, string>): string {
-  return chosen[key] ?? DEFAULT_ICONS[key] ?? '🌐';
+  return chosen[key] ?? DEFAULT_ICONS[key] ?? 'gamepad-2';
 }
