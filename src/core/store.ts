@@ -15,16 +15,38 @@ export interface Profile {
   createdAt: number;
   /** Endereço inicial próprio, usado pelas contas de "Outro site". */
   url?: string;
+  /** Zoom da página desta conta (1 = 100%). */
+  zoom?: number;
 }
 
 export interface Settings {
   layout: string;
   turbo: boolean;
-  /** Barra lateral recolhida: só a faixa estreita com as contas. */
+  /** Barra lateral recolhida: só a faixa estreita com as páginas e contas. */
   sidebarCollapsed: boolean;
+  /** Página de jogo aberta na barra lateral; as telas mostram só as contas dela. */
+  activeGroup?: string;
+  groupIcons: Record<string, string>;
+  /** Resolução de todas as telas (1 = nativa da tela do PC, 0.75, 0.5). */
+  resolution: number;
+  /** Resolução das telas fora de foco quando o turbo está ligado. */
+  turboResolution: number;
+  /** Zoom das contas novas. */
+  defaultZoom: number;
+  /** Aceleração de hardware (GPU); vale depois de reabrir o app. */
+  gpu: boolean;
 }
 
-const DEFAULT_SETTINGS: Settings = { layout: '1x1', turbo: false, sidebarCollapsed: false };
+export const DEFAULT_SETTINGS: Settings = {
+  layout: '1x1',
+  turbo: false,
+  sidebarCollapsed: false,
+  groupIcons: {},
+  resolution: 1,
+  turboResolution: 0.5,
+  defaultZoom: 1,
+  gpu: true,
+};
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil
 const MAX_RECORDED_BODY = 200_000;
@@ -65,6 +87,14 @@ export class Store {
     const profile: Profile = { id, gameId, label, partition: `persist:${gameId}-${id}`, createdAt: Date.now() };
     if (url) profile.url = url;
     this.profiles.push(profile);
+    this.saveProfiles();
+    return profile;
+  }
+
+  updateProfile(id: string, patch: Partial<Pick<Profile, 'label' | 'zoom'>>): Profile | undefined {
+    const profile = this.profiles.find((p) => p.id === id);
+    if (!profile) return undefined;
+    Object.assign(profile, patch);
     this.saveProfiles();
     return profile;
   }

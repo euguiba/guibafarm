@@ -9,6 +9,7 @@ import { detectAlerts, type Alert } from './alerts';
 import { Assistant } from './assistant';
 import { Store, type Profile, type Settings } from './store';
 import { isLayoutMode, toAddress, type LayoutMode } from './tiles';
+import { GROUP_ICONS, groupIcon, groupKey, groupLabel } from './groups';
 
 export type { LayoutMode } from './tiles';
 export type UiChannel = 'state' | 'recommendations' | 'log' | 'alert';
@@ -34,9 +35,26 @@ export interface BrowserHost {
   setMuted(profileId: string, muted: boolean): void;
   setTurbo(on: boolean): void;
   setSidebarCollapsed(collapsed: boolean): void;
+  /** Só estas contas entram na grade (as da página de jogo aberta); as outras seguem rodando escondidas. */
+  setFilter(profileIds: string[]): void;
+  setRender(opts: RenderOptions): void;
+  setZoom(profileId: string, zoom: number): void;
+  /** Esconde todas as telas enquanto uma janela da interface (configurações) está aberta por cima. */
+  setOverlay(hidden: boolean): void;
   metrics(): ViewMetrics;
   page(profileId: string): PageControl | undefined;
 }
+
+export interface RenderOptions {
+  /** Resolução de todas as telas: 1 é a da tela do PC; 0.5 desenha com metade dos pixels. */
+  resolution: number;
+  /** Resolução das telas fora de foco quando o turbo está ligado. */
+  turboResolution: number;
+}
+
+const RESOLUTIONS = [1, 0.75, 0.5];
+const MIN_ZOOM = 0.3;
+const MAX_ZOOM = 2;
 
 /** CPU em % da máquina e memória em MB, no total do app e por conta aberta. */
 export interface ViewMetrics {
@@ -75,6 +93,8 @@ export class AppCore {
     if (isLayoutMode(settings.layout)) this.host.setLayout(settings.layout);
     this.host.setTurbo(settings.turbo);
     this.host.setSidebarCollapsed(settings.sidebarCollapsed);
+    this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
+    this.applyFilter();
     this.timer = setInterval(() => {
       for (const id of this.host.openIds()) {
         const profile = this.store.getProfile(id);
@@ -87,6 +107,23 @@ export class AppCore {
     if (this.timer) clearInterval(this.timer);
     this.actions.stopAll();
     for (const id of this.host.openIds()) await this.host.close(id);
+  }
+
+  /** Página aberta: a escolhida, ou a primeira que tiver contas. */
+  private activeGroup(): string | undefined {
+    const keys = this.store.listProfiles().map(groupKey);
+    const chosen = this.store.getSettings().activeGroup;
+    return chosen && keys.includes(chosen) ? chosen : keys[0];
+  }
+
+  private applyFilter(): void {
+    const active = this.activeGroup();
+    this.host.setFilter(this.store.listProfiles().filter((p) => groupKey(p) === active).map((p) => p.id));
+  }
+
+  private setActiveGroup(key: string): void {
+    this.store.setSettings({ activeGroup: key });
+    this.applyFilter();
   }
 
   private gameOf(profile: Profile): GameModule {
@@ -132,7 +169,7 @@ export class AppCore {
     'profiles:list': () =>
       this.store
         .listProfiles()
-        .map((p) => ({ ...p, open: this.host.openIds().includes(p.id), recording: this.recording.has(p.id) })),
+        .map((p) => ({ ...p, group: groupKey(p), open: this.host.openIds().includes(p.id), recording: this.recording.has(p.id) })),
 
     'profiles:add': (gameId: string, label: string, address?: string) => {
       const game = findGame(gameId);
@@ -147,18 +184,24 @@ export class AppCore {
         return { error: `As regras do ${game.manifest.name} permitem até ${max} contas.` };
       }
       const fallback = url ? new URL(url).hostname.replace(/^www\./, '') : game.manifest.name;
-      return { profile: this.store.addProfile(gameId, String(label ?? '').trim() || fallback, url) };
+      const profile = this.store.addProfile(gameId, String(label ?? '').trim() || fallback, url);
+      const zoom = this.store.getSettings().defaultZoom;
+      if (zoom !== 1) this.store.updateProfile(profile.id, { zoom });
+      this.setActiveGroup(groupKey(profile));
+      return { profile };
     },
 
     'profiles:remove': async (id: string) => {
       await this.host.close(id);
       this.store.removeProfile(id);
+      this.applyFilter();
     },
 
     'profiles:open': async (id: string) => {
       const profile = this.store.getProfile(id);
       if (!profile) return;
       const game = this.gameOf(profile);
+      if (groupKey(profile) !== this.activeGroup()) this.setActiveGroup(groupKey(profile));
       await this.host.open(profile, game, {
         onCaptured: (ev) => this.onCaptured(profile, game, ev),
         onSnapshot: (snap) => this.onSnapshot(profile, game, snap),
@@ -184,6 +227,59 @@ export class AppCore {
       this.store.setSettings({ sidebarCollapsed: !!collapsed });
       this.host.setSidebarCollapsed(!!collapsed);
     },
+
+    'groups:list': () => {
+      const settings = this.store.getSettings();
+      const open = this.host.openIds();
+      const active = this.activeGroup();
+      const groups = new Map<string, { key: string; label: string; icon: string; count: number; open: number; max?: number; active: boolean }>();
+      for (const p of this.store.listProfiles()) {
+        const key = groupKey(p);
+        let g = groups.get(key);
+        if (!g) {
+          g = {
+            key,
+            label: groupLabel(key, (id) => findGame(id)?.manifest.name),
+            icon: groupIcon(key, settings.groupIcons),
+            count: 0,
+            open: 0,
+            max: key.startsWith('site:') ? undefined : findGame(key)?.manifest.maxAccounts,
+            active: key === active,
+          };
+          groups.set(key, g);
+        }
+        g.count++;
+        if (open.includes(p.id)) g.open++;
+      }
+      return { groups: [...groups.values()], icons: GROUP_ICONS };
+    },
+
+    'group:set': (key: string) => this.setActiveGroup(String(key)),
+
+    'group:icon': (key: string, icon: string) => {
+      if (!GROUP_ICONS.includes(icon)) return;
+      this.store.setSettings({ groupIcons: { ...this.store.getSettings().groupIcons, [key]: icon } });
+    },
+
+    'zoom:set': (id: string, zoom: number) => {
+      const z = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(Number(zoom) * 100) / 100));
+      if (!Number.isFinite(z) || !this.store.updateProfile(id, { zoom: z })) return undefined;
+      this.host.setZoom(id, z);
+      return z;
+    },
+
+    'settings:set': (patch: Partial<Settings>) => {
+      const next: Partial<Settings> = {};
+      if (RESOLUTIONS.includes(Number(patch.resolution))) next.resolution = Number(patch.resolution);
+      if (RESOLUTIONS.includes(Number(patch.turboResolution))) next.turboResolution = Number(patch.turboResolution);
+      if (Number(patch.defaultZoom) >= MIN_ZOOM && Number(patch.defaultZoom) <= MAX_ZOOM) next.defaultZoom = Number(patch.defaultZoom);
+      if (typeof patch.gpu === 'boolean') next.gpu = patch.gpu;
+      const settings = this.store.setSettings(next);
+      this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
+      return settings;
+    },
+
+    'overlay:set': (hidden: boolean) => this.host.setOverlay(!!hidden),
 
     'view:select': (id: string) => this.host.select(id),
     'view:reload': (id?: string) => this.host.reload(id),

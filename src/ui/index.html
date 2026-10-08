@@ -8,30 +8,40 @@
 </head>
 <body>
   <aside id="sidebar">
-    <div class="side-head">
+    <nav id="pages" aria-label="Páginas de jogos">
       <img class="logo" src="logo.png" alt="" />
-      <span class="brand">Navegador Idle</span>
-      <button id="collapse" class="ghost" title="Recolher a barra (Ctrl+B)">‹</button>
-    </div>
+      <button id="expand" class="rail-btn" title="Abrir a barra (Ctrl+B)">›</button>
+      <div id="group-list"></div>
+      <button id="new-page" class="page-add" title="Adicionar conta ou jogo novo">+</button>
+      <div id="rail-accounts"></div>
+      <span class="grow"></span>
+      <button id="open-settings" class="rail-btn" title="Configurações de desempenho">⚙</button>
+    </nav>
 
-    <nav id="rail" aria-label="Contas"></nav>
-
-    <div class="side-body">
-    <section>
-      <div class="row">
-        <h2>Contas</h2>
-        <span id="open-count" class="pill">0 abertas</span>
-        <button id="new-account" class="ghost small" title="Adicionar conta">+ Nova</button>
+    <div id="panel">
+      <div class="panel-head">
+        <button id="group-icon" class="group-icon" title="Trocar o ícone desta página">🎮</button>
+        <span id="group-title">Contas</span>
+        <span id="group-count" class="pill"></span>
+        <button id="collapse" class="ghost" title="Recolher a barra (Ctrl+B)">‹</button>
       </div>
-      <form id="add-form" hidden>
-        <select id="game-select"></select>
-        <input id="site-input" placeholder="Endereço do site, ex.: jogo.com.br" hidden />
-        <input id="label-input" placeholder="Apelido da conta" />
-        <button type="submit" class="primary">Adicionar</button>
-      </form>
-      <p id="add-warning" class="warning" hidden></p>
-      <div id="profile-groups"></div>
-    </section>
+      <div id="icon-picker" hidden></div>
+
+      <div class="side-body">
+      <section>
+        <ul id="profile-list" class="profile-list"></ul>
+        <button id="new-account" class="add-account">+ Adicionar conta</button>
+        <form id="add-form" hidden>
+          <select id="game-select"></select>
+          <input id="site-input" placeholder="Endereço do site, ex.: jogo.com.br" hidden />
+          <input id="label-input" placeholder="Apelido da conta" />
+          <div class="row">
+            <button type="submit" class="primary grow">Adicionar</button>
+            <button type="button" id="cancel-add" class="ghost">Cancelar</button>
+          </div>
+        </form>
+        <p id="add-warning" class="warning" hidden></p>
+      </section>
 
     <section>
       <h2>Alertas</h2>
@@ -78,6 +88,7 @@
         <button type="submit">Perguntar</button>
       </form>
     </section>
+      </div>
     </div>
   </aside>
   <div id="workspace">
@@ -96,10 +107,55 @@
       <div class="meter" title="Memória usada pelo app"><span>RAM</span><b id="m-ram">—</b></div>
       <button id="turbo" class="toggle" title="Desacelera as telas fora de foco para sobrar desempenho para a que você está usando">Turbo <b>off</b></button>
       <button id="reload-all" class="ghost" title="Recarregar todas as contas abertas">⟳</button>
+      <button id="topbar-settings" class="ghost" title="Configurações de desempenho">⚙</button>
     </header>
     <main id="stage"><div id="empty">Adicione uma conta e clique em Abrir.</div></main>
   </div>
   <div id="tile-layer"></div>
+
+  <div id="settings" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-labelledby="settings-title">
+      <div class="modal-head">
+        <h2 id="settings-title">Desempenho</h2>
+        <button id="close-settings" class="ghost" title="Fechar">✕</button>
+      </div>
+      <div class="presets">
+        <button data-preset="fraco" class="preset">
+          <b>PC fraco</b><span>Resolução 75%, turbo ligado com 50% fora de foco e zoom 80% nas contas novas.</span>
+        </button>
+        <button data-preset="qualidade" class="preset">
+          <b>Qualidade máxima</b><span>Resolução da tela do PC, turbo desligado e zoom 100%.</span>
+        </button>
+      </div>
+      <div class="setting">
+        <div><b>Resolução das telas</b><span>Menos pixels desenhados por tela. O jogo fica um pouco menos nítido e o PC trabalha menos.</span></div>
+        <div class="segmented" data-setting="resolution">
+          <button data-value="1">Nativa</button><button data-value="0.75">75%</button><button data-value="0.5">50%</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div><b>Turbo</b><span>A conta em foco fica com tudo. As outras rodam mais devagar, sem som e na resolução abaixo; as escondidas ficam em segundo plano.</span></div>
+        <label class="switch"><input type="checkbox" id="set-turbo" /><i></i></label>
+      </div>
+      <div class="setting">
+        <div><b>Resolução fora de foco (turbo)</b><span>Vale para as telas que você não está usando.</span></div>
+        <div class="segmented" data-setting="turboResolution">
+          <button data-value="0.75">75%</button><button data-value="0.5">50%</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div><b>Zoom das contas novas</b><span>Cada tela também tem − e + no cabeçalho para mudar o zoom só dela.</span></div>
+        <div class="segmented" data-setting="defaultZoom">
+          <button data-value="0.67">67%</button><button data-value="0.8">80%</button><button data-value="0.9">90%</button><button data-value="1">100%</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div><b>Aceleração de hardware</b><span>Usa a placa de vídeo. Desligue só se as telas piscarem ou ficarem pretas. Vale depois de reabrir o app.</span></div>
+        <label class="switch"><input type="checkbox" id="set-gpu" /><i></i></label>
+      </div>
+      <p id="restart-note" class="restart" hidden>Reabra o app para trocar a aceleração de hardware. <button id="relaunch" class="primary small">Reabrir agora</button></p>
+    </div>
+  </div>
   <script src="renderer.js"></script>
 </body>
 </html>

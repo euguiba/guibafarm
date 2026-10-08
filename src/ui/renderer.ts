@@ -13,6 +13,8 @@ interface UiGame {
 interface UiProfile {
   id: string;
   gameId: string;
+  group: string;
+  zoom?: number;
   label: string;
   open: boolean;
   recording: boolean;
@@ -91,6 +93,8 @@ interface UiTile {
   url?: string;
   muted?: boolean;
   focused?: boolean;
+  zoom?: number;
+  scale?: number;
 }
 
 interface UiTiles {
@@ -98,6 +102,7 @@ interface UiTiles {
   turbo: boolean;
   selected?: string;
   open: number;
+  overlay: boolean;
   tiles: UiTile[];
 }
 
@@ -105,6 +110,16 @@ interface UiMetrics {
   cpu: number;
   ramMb: number;
   perProfile: Record<string, { cpu: number; ramMb: number }>;
+}
+
+interface UiSettings {
+  layout: string;
+  turbo: boolean;
+  sidebarCollapsed: boolean;
+  resolution: number;
+  turboResolution: number;
+  defaultZoom: number;
+  gpu: boolean;
 }
 
 interface Window {
@@ -116,7 +131,14 @@ interface Window {
     openProfile(id: string): Promise<void>;
     closeProfile(id: string): Promise<void>;
     setLayout(mode: string): Promise<void>;
-    getSettings(): Promise<{ layout: string; turbo: boolean; sidebarCollapsed: boolean }>;
+    getSettings(): Promise<UiSettings>;
+    setSettings(patch: Partial<UiSettings>): Promise<UiSettings>;
+    listGroups(): Promise<{ groups: UiGroup[]; icons: string[] }>;
+    setGroup(key: string): Promise<void>;
+    setGroupIcon(key: string, icon: string): Promise<void>;
+    setZoom(id: string, zoom: number): Promise<number | undefined>;
+    setOverlay(hidden: boolean): Promise<void>;
+    relaunch(): Promise<void>;
     setSidebarCollapsed(collapsed: boolean): Promise<void>;
     setTurbo(on: boolean): Promise<void>;
     selectView(id: string): Promise<void>;
@@ -158,39 +180,112 @@ function num(n: number | undefined): string {
   return n === undefined ? '—' : n.toLocaleString('pt-BR');
 }
 
-const collapsed = new Set<string>();
+interface UiGroup {
+  key: string;
+  label: string;
+  icon: string;
+  count: number;
+  open: number;
+  max?: number;
+  active: boolean;
+}
 
+let groupIcons: string[] = [];
+let activeGroup: UiGroup | undefined;
+
+// Barra lateral: faixa de páginas (uma por jogo) e a lista de contas da página aberta.
 async function renderProfiles(): Promise<void> {
-  const root = $('profile-groups');
-  const profiles = await window.api.listProfiles();
-  root.replaceChildren();
-  const open = profiles.filter((p) => p.open).length;
-  $('open-count').textContent = `${open} ${open === 1 ? 'aberta' : 'abertas'}`;
-  renderRail(profiles);
+  const [profiles, data] = await Promise.all([window.api.listProfiles(), window.api.listGroups()]);
+  groupIcons = data.icons;
+  activeGroup = data.groups.find((g) => g.active);
+  renderGroups(data.groups);
 
-  for (const game of games) {
-    const mine = profiles.filter((p) => p.gameId === game.id);
-    if (mine.length === 0) continue;
-    const group = el('div', 'group');
-    if (collapsed.has(game.id)) group.classList.add('collapsed');
-    const head = el('div', 'group-head');
-    head.append(
-      el('span', 'group-name', game.name),
-      el('span', 'pill', game.maxAccounts ? `${mine.length}/${game.maxAccounts}` : String(mine.length)),
-      el('span', 'caret', collapsed.has(game.id) ? '▸' : '▾'),
-    );
-    head.addEventListener('click', () => {
-      if (collapsed.has(game.id)) collapsed.delete(game.id);
-      else collapsed.add(game.id);
-      void renderProfiles();
+  const mine = profiles.filter((p) => p.group === activeGroup?.key);
+  const list = $('profile-list');
+  list.replaceChildren();
+  for (const p of mine) list.append(profileItem(p, gameById(p.gameId)!));
+  if (profiles.length === 0) list.append(el('li', 'empty-note', 'Nenhuma conta ainda. Adicione a primeira abaixo.'));
+
+  $('group-icon').textContent = activeGroup?.icon ?? '🎮';
+  $('group-title').textContent = activeGroup?.label ?? 'Contas';
+  $('group-count').textContent = activeGroup ? (activeGroup.max ? `${activeGroup.count}/${activeGroup.max}` : String(activeGroup.count)) : '';
+  $('group-count').hidden = !activeGroup;
+  renderRailAccounts(mine);
+  $('empty').hidden = mine.some((p) => p.open);
+}
+
+function renderGroups(groups: UiGroup[]): void {
+  const box = $('group-list');
+  box.replaceChildren();
+  for (const g of groups) {
+    const b = el('button', 'page', g.icon);
+    if (g.active) b.classList.add('active');
+    b.title = `${g.label} · ${g.count} ${g.count === 1 ? 'conta' : 'contas'}${g.open ? `, ${g.open} aberta${g.open === 1 ? '' : 's'}` : ''}`;
+    if (g.open) b.append(el('span', 'page-badge', String(g.open)));
+    b.addEventListener('click', async () => {
+      await window.api.setGroup(g.key);
+      showAddForm(false);
+      await renderProfiles();
     });
-    const list = el('ul', 'profile-list');
-    for (const p of mine) list.append(profileItem(p, game));
-    group.append(head, list);
-    root.append(group);
+    box.append(b);
   }
-  if (profiles.length === 0) root.append(el('p', 'muted', 'Nenhuma conta ainda.'));
-  $('empty').hidden = open > 0;
+}
+
+// Com a barra recolhida, a faixa também mostra as contas da página aberta.
+function renderRailAccounts(profiles: UiProfile[]): void {
+  const rail = $('rail-accounts');
+  rail.replaceChildren();
+  for (const p of profiles) {
+    const b = el('button', 'avatar', initials(p.label));
+    b.style.setProperty('--acc', colorOf(p.id));
+    if (p.open) b.classList.add('open');
+    if (p.id === selectedId) b.classList.add('selected');
+    b.title = `${p.label}${p.open ? '' : ' (fechada)'}`;
+    b.addEventListener('click', async () => {
+      if (!p.open) await window.api.openProfile(p.id);
+      await select(p.id);
+    });
+    rail.append(b);
+  }
+}
+
+function renderIconPicker(): void {
+  const picker = $('icon-picker');
+  picker.replaceChildren();
+  for (const icon of groupIcons) {
+    const b = el('button', 'pick', icon);
+    b.addEventListener('click', async () => {
+      if (activeGroup) await window.api.setGroupIcon(activeGroup.key, icon);
+      picker.hidden = true;
+      await renderProfiles();
+    });
+    picker.append(b);
+  }
+}
+
+async function setCollapsed(collapsed: boolean): Promise<void> {
+  document.body.classList.toggle('collapsed', collapsed);
+  await window.api.setSidebarCollapsed(collapsed);
+}
+
+/** Abre o formulário já no jogo da página aberta; `fresh` deixa escolher outro jogo (página nova). */
+function showAddForm(show: boolean, fresh = false): void {
+  $('add-form').hidden = !show;
+  $('new-account').hidden = show;
+  if (!show) {
+    $('add-warning').hidden = true;
+    return;
+  }
+  const sel = $<HTMLSelectElement>('game-select');
+  const site = $<HTMLInputElement>('site-input');
+  if (!fresh && activeGroup) {
+    sel.value = activeGroup.key.startsWith('site:') ? 'site' : activeGroup.key;
+    site.value = activeGroup.key.startsWith('site:') ? activeGroup.key.slice(5) : '';
+  } else {
+    site.value = '';
+  }
+  site.hidden = sel.value !== 'site';
+  $<HTMLInputElement>('label-input').focus();
 }
 
 // Cada conta ganha uma cor fixa (pela id), repetida na lista, na faixa recolhida e no cabeçalho da tela.
@@ -206,42 +301,6 @@ function initials(label: string): string {
   const words = label.trim().split(/\s+/).filter(Boolean);
   const text = words.length > 1 ? words[0][0] + words[1][0] : label.trim().slice(0, 2);
   return text.toUpperCase() || '?';
-}
-
-// Faixa estreita da barra recolhida: uma bolinha por conta, verde quando aberta.
-function renderRail(profiles: UiProfile[]): void {
-  const rail = $('rail');
-  rail.replaceChildren();
-  for (const p of profiles) {
-    const b = el('button', 'avatar', initials(p.label));
-    b.style.setProperty('--acc', colorOf(p.id));
-    if (p.open) b.classList.add('open');
-    if (p.id === selectedId) b.classList.add('selected');
-    b.title = `${p.label} · ${gameById(p.gameId)?.name ?? p.gameId}${p.open ? '' : ' (fechada)'}`;
-    b.addEventListener('click', async () => {
-      if (!p.open) await window.api.openProfile(p.id);
-      await select(p.id);
-    });
-    rail.append(b);
-  }
-  const add = el('button', 'avatar add', '+');
-  add.title = 'Adicionar conta';
-  add.addEventListener('click', () => { void setCollapsed(false); showAddForm(true); });
-  rail.append(add);
-}
-
-async function setCollapsed(collapsed: boolean): Promise<void> {
-  document.body.classList.toggle('collapsed', collapsed);
-  $('collapse').textContent = collapsed ? '›' : '‹';
-  $('collapse').title = collapsed ? 'Abrir a barra (Ctrl+B)' : 'Recolher a barra (Ctrl+B)';
-  await window.api.setSidebarCollapsed(collapsed);
-}
-
-function showAddForm(show: boolean): void {
-  $('add-form').hidden = !show;
-  $('new-account').textContent = show ? 'Cancelar' : '+ Nova';
-  if (show) $<HTMLSelectElement>('game-select').focus();
-  else $('add-warning').hidden = true;
 }
 
 function profileItem(p: UiProfile, game: UiGame): HTMLElement {
@@ -272,7 +331,7 @@ function profileItem(p: UiProfile, game: UiGame): HTMLElement {
   if (p.open) button('Fechar', () => window.api.closeProfile(p.id));
   else button('Abrir', async () => { await window.api.openProfile(p.id); await select(p.id); });
   if (game.policy.read) {
-    button(p.recording ? 'Parar gravação' : 'Gravar tráfego', async () => {
+    button(p.recording ? 'Parar gravação' : 'Gravar', async () => {
       const dir = await window.api.setRecording(p.id, !p.recording);
       if (!p.recording) alert(`Gravando o tráfego desta conta em:\n${dir}`);
     });
@@ -297,7 +356,7 @@ function renderTiles(data: UiTiles): void {
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === data.mode));
   setTurboButton(data.turbo);
   $('empty').hidden = data.open > 0;
-  if (data.open === 0) return;
+  if (data.open === 0 || data.overlay) return;
   for (const t of data.tiles) {
     const frame = el('div', 'tile-frame');
     Object.assign(frame.style, { left: `${t.x}px`, top: `${t.y}px`, width: `${t.width}px`, height: `${t.height}px` });
@@ -322,6 +381,23 @@ function renderTiles(data: UiTiles): void {
       el('span', 'tile-metric', ''),
     );
     head.querySelector<HTMLElement>('.tile-metric')!.dataset.profile = id;
+    if (t.scale !== undefined && t.scale < 1) {
+      const res = el('span', 'tile-res', `${Math.round(t.scale * 100)}%`);
+      res.title = 'Resolução desta tela (configurações de desempenho)';
+      head.append(res);
+    }
+    const zoom = t.zoom ?? 1;
+    const zoomBox = el('span', 'tile-zoom');
+    const zbtn = (label: string, title: string, next: number) => {
+      const b = el('button', 'icon', label);
+      b.title = title;
+      b.addEventListener('click', (ev) => { ev.stopPropagation(); void window.api.setZoom(id, next); });
+      return b;
+    };
+    zoomBox.append(zbtn('−', 'Diminuir o zoom', zoom - 0.1), el('span', 'zoom-value', `${Math.round(zoom * 100)}%`), zbtn('+', 'Aumentar o zoom', zoom + 0.1));
+    zoomBox.querySelector('.zoom-value')!.addEventListener('click', (ev) => { ev.stopPropagation(); void window.api.setZoom(id, 1); });
+    (zoomBox.querySelector('.zoom-value') as HTMLElement).title = 'Voltar para 100%';
+    head.append(zoomBox);
     const icon = (label: string, title: string, onClick: () => Promise<unknown>) => {
       const b = el('button', 'icon', label);
       b.title = title;
@@ -541,6 +617,54 @@ async function select(id: string): Promise<void> {
   await renderProfiles();
 }
 
+// Janela de configurações de desempenho. Enquanto ela está aberta, as telas dos jogos ficam escondidas.
+async function openSettings(open: boolean): Promise<void> {
+  $('settings').hidden = !open;
+  await window.api.setOverlay(open);
+  if (open) syncSettings(await window.api.getSettings());
+}
+
+let gpuAtStart: boolean | undefined;
+
+function syncSettings(s: UiSettings): void {
+  gpuAtStart ??= s.gpu;
+  document.querySelectorAll<HTMLElement>('[data-setting]').forEach((group) => {
+    const value = Number(s[group.dataset.setting as 'resolution' | 'turboResolution' | 'defaultZoom']);
+    group.querySelectorAll<HTMLButtonElement>('button').forEach((b) => b.classList.toggle('active', Number(b.dataset.value) === value));
+  });
+  $<HTMLInputElement>('set-turbo').checked = s.turbo;
+  $<HTMLInputElement>('set-gpu').checked = s.gpu;
+  $('restart-note').hidden = s.gpu === gpuAtStart;
+  setTurboButton(s.turbo);
+}
+
+function initSettings(): void {
+  for (const id of ['open-settings', 'topbar-settings']) $(id).addEventListener('click', () => void openSettings(true));
+  $('close-settings').addEventListener('click', () => void openSettings(false));
+  $('settings').addEventListener('click', (ev) => { if (ev.target === $('settings')) void openSettings(false); });
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('settings').hidden) void openSettings(false); });
+  document.querySelectorAll<HTMLElement>('[data-setting]').forEach((group) =>
+    group.querySelectorAll<HTMLButtonElement>('button').forEach((b) =>
+      b.addEventListener('click', async () => syncSettings(await window.api.setSettings({ [group.dataset.setting!]: Number(b.dataset.value) }))),
+    ),
+  );
+  $('set-turbo').addEventListener('change', async (ev) => {
+    await window.api.setTurbo((ev.target as HTMLInputElement).checked);
+    syncSettings(await window.api.getSettings());
+  });
+  $('set-gpu').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ gpu: (ev.target as HTMLInputElement).checked })));
+  $('relaunch').addEventListener('click', () => void window.api.relaunch());
+  document.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      const weak = b.dataset.preset === 'fraco';
+      await window.api.setTurbo(weak);
+      syncSettings(await window.api.setSettings(weak
+        ? { resolution: 0.75, turboResolution: 0.5, defaultZoom: 0.8 }
+        : { resolution: 1, turboResolution: 0.75, defaultZoom: 1 }));
+    }),
+  );
+}
+
 async function init(): Promise<void> {
   games = await window.api.listGames();
   const sel = $<HTMLSelectElement>('game-select');
@@ -552,9 +676,7 @@ async function init(): Promise<void> {
   }
 
   const site = $<HTMLInputElement>('site-input');
-  const syncSite = () => { site.hidden = sel.value !== 'site'; };
-  sel.addEventListener('change', syncSite);
-  syncSite();
+  sel.addEventListener('change', () => { site.hidden = sel.value !== 'site'; });
 
   $('add-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
@@ -570,14 +692,23 @@ async function init(): Promise<void> {
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) =>
     b.addEventListener('click', () => void window.api.setLayout(b.dataset.layout!)),
   );
-  $('collapse').addEventListener('click', () => void setCollapsed(!document.body.classList.contains('collapsed')));
+  $('collapse').addEventListener('click', () => void setCollapsed(true));
+  $('expand').addEventListener('click', () => void setCollapsed(false));
+  $('new-page').addEventListener('click', () => { void setCollapsed(false); showAddForm(true, true); });
+  $('cancel-add').addEventListener('click', () => showAddForm(false));
+  $('group-icon').addEventListener('click', () => {
+    const picker = $('icon-picker');
+    if (picker.hidden) renderIconPicker();
+    picker.hidden = !picker.hidden;
+  });
+  initSettings();
   document.addEventListener('keydown', (ev) => {
     if (ev.ctrlKey && ev.key.toLowerCase() === 'b') {
       ev.preventDefault();
       void setCollapsed(!document.body.classList.contains('collapsed'));
     }
   });
-  $('new-account').addEventListener('click', () => showAddForm($('add-form').hidden));
+  $('new-account').addEventListener('click', () => showAddForm(true));
   $('turbo').addEventListener('click', () => void window.api.setTurbo(!$('turbo').classList.contains('on')));
   $('reload-all').addEventListener('click', () => void window.api.reloadView());
   $('url-form').addEventListener('submit', async (ev) => {

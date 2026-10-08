@@ -2,19 +2,19 @@
 // direita da barra lateral mostra as contas abertas em grade (1x1, Split, 2x2, 3x3);
 // cada célula tem um cabeçalho desenhado pela interface logo acima da página.
 
-import { app, shell, WebContentsView, type BaseWindow, type WebContents } from 'electron';
+import { app, screen, shell, WebContentsView, type BaseWindow, type WebContents } from 'electron';
 import { cpus } from 'node:os';
 import type { PageControl } from '../core/actions';
-import type { BrowserHost, PageFeeds, ViewMetrics } from '../core/app-core';
+import type { BrowserHost, PageFeeds, RenderOptions, ViewMetrics } from '../core/app-core';
 import type { Profile } from '../core/store';
 import { computeCells, type Cell, type LayoutMode } from '../core/tiles';
 import type { GameModule } from '../sdk/types';
 import { attachCapture } from './capture';
 import { watchPage } from './page-watch';
 
-/** Largura da barra lateral aberta e recolhida; igual ao CSS. */
+/** Largura da barra lateral aberta (faixa de páginas + lista de contas) e recolhida (só a faixa); igual ao CSS. */
 export const SIDEBAR_WIDTH = 288;
-export const SIDEBAR_COLLAPSED = 64;
+export const SIDEBAR_COLLAPSED = 56;
 /** Altura da barra de cima (grade, endereço, medidores e turbo numa linha só); igual ao CSS. */
 export const TOPBAR_HEIGHT = 52;
 /** Altura do cabeçalho de cada tela; igual ao CSS. */
@@ -32,6 +32,9 @@ interface Entry {
   url: string;
   muted: boolean;
   cpuRate: number;
+  zoom: number;
+  /** Resolução aplicada agora (1 = nativa). */
+  scale: number;
 }
 
 export interface TileInfo extends Cell {
@@ -41,6 +44,8 @@ export interface TileInfo extends Cell {
   url?: string;
   muted?: boolean;
   focused?: boolean;
+  zoom?: number;
+  scale?: number;
 }
 
 export type HostChannel = 'tiles';
@@ -51,6 +56,9 @@ export class ElectronHost implements BrowserHost {
   private mode: LayoutMode = '1x1';
   private turbo = false;
   private sidebar = SIDEBAR_WIDTH;
+  private filter: Set<string> | undefined;
+  private overlay = false;
+  private render: RenderOptions = { resolution: 1, turboResolution: 0.5 };
 
   constructor(
     private readonly win: BaseWindow,
@@ -74,12 +82,14 @@ export class ElectronHost implements BrowserHost {
         if (game.pageReader) detach.push(watchPage(wc, game.manifest.hosts, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
       const url = profile.url ?? game.manifest.startUrl;
-      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1 };
+      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1 };
       this.entries.set(profile.id, entry);
       const onNav = (_e: unknown, next: string) => {
         entry.url = next;
         this.emitTiles();
       };
+      // O Chromium guarda o zoom por site; reaplica o da conta a cada página carregada.
+      wc.on('did-finish-load', () => wc.setZoomFactor(entry.zoom));
       wc.on('did-navigate', onNav);
       wc.on('did-navigate-in-page', (e, next, isMainFrame) => isMainFrame && onNav(e, next));
       // Links que abrem nova janela vão para o navegador padrão, fora da partição da conta.
@@ -100,8 +110,37 @@ export class ElectronHost implements BrowserHost {
     this.win.contentView.removeChildView(entry.view);
     entry.view.webContents.close();
     this.entries.delete(profileId);
-    if (this.selected === profileId) this.selected = this.entries.keys().next().value;
+    if (this.selected === profileId) this.selected = this.shownIds()[0];
     this.layout();
+  }
+
+  setFilter(profileIds: string[]): void {
+    this.filter = new Set(profileIds);
+    if (!this.selected || !this.filter.has(this.selected)) this.selected = this.shownIds()[0];
+    this.layout();
+  }
+
+  setRender(opts: RenderOptions): void {
+    this.render = opts;
+    this.layout();
+  }
+
+  setZoom(profileId: string, zoom: number): void {
+    const entry = this.entries.get(profileId);
+    if (!entry) return;
+    entry.zoom = zoom;
+    entry.view.webContents.setZoomFactor(zoom);
+    this.emitTiles();
+  }
+
+  setOverlay(hidden: boolean): void {
+    this.overlay = hidden;
+    this.layout();
+  }
+
+  /** Contas abertas da página de jogo atual, na ordem em que foram abertas. */
+  private shownIds(): string[] {
+    return this.openIds().filter((id) => !this.filter || this.filter.has(id));
   }
 
   openIds(): string[] {
@@ -176,13 +215,13 @@ export class ElectronHost implements BrowserHost {
   private cells(): Cell[] {
     const { width, height } = this.win.getContentBounds();
     const area = { x: this.sidebar, y: TOPBAR_HEIGHT, width: Math.max(0, width - this.sidebar), height: Math.max(0, height - TOPBAR_HEIGHT) };
-    return computeCells(this.mode, this.openIds(), this.selected, area, { pad: PAD, gap: GAP });
+    return computeCells(this.mode, this.shownIds(), this.selected, area, { pad: PAD, gap: GAP });
   }
 
   private layout(): void {
     const cells = this.cells();
     const shown = new Set<string>();
-    for (const cell of cells) {
+    for (const cell of this.overlay ? [] : cells) {
       const entry = cell.profileId ? this.entries.get(cell.profileId) : undefined;
       if (!entry) continue;
       shown.add(cell.profileId!);
@@ -196,16 +235,31 @@ export class ElectronHost implements BrowserHost {
     this.emitTiles(cells);
   }
 
-  /** Turbo: telas escondidas ficam em segundo plano, as fora de foco rodam mais devagar e sem som. */
+  /**
+   * Resolução e turbo. Todas as telas desenham na resolução escolhida; com o turbo, as fora de foco
+   * caem para a resolução do turbo, rodam o JavaScript mais devagar e ficam sem som, e as escondidas
+   * (outras páginas ou fora da grade) ficam em segundo plano.
+   */
   private applyPower(id: string, entry: Entry, visible: boolean): void {
     const wc = entry.view.webContents;
     const focused = id === this.selected;
+    const background = this.turbo && !focused;
     wc.setBackgroundThrottling(this.turbo && !visible);
-    wc.setAudioMuted(entry.muted || (this.turbo && !focused));
-    const rate = this.turbo && !focused ? TURBO_CPU_RATE : 1;
+    wc.setAudioMuted(entry.muted || background);
+    const rate = background ? TURBO_CPU_RATE : 1;
     if (rate !== entry.cpuRate) {
       entry.cpuRate = rate;
-      setCpuRate(wc, rate);
+      sendCdp(wc, 'Emulation.setCPUThrottlingRate', { rate });
+    }
+    const scale = background ? Math.min(this.render.resolution, this.render.turboResolution) : this.render.resolution;
+    if (scale !== entry.scale) {
+      entry.scale = scale;
+      if (scale === 1) sendCdp(wc, 'Emulation.clearDeviceMetricsOverride', {});
+      else {
+        // Mesmo tamanho de página, com menos pixels desenhados; o Chromium amplia a imagem final.
+        const native = screen.getDisplayMatching(this.win.getBounds()).scaleFactor;
+        sendCdp(wc, 'Emulation.setDeviceMetricsOverride', { width: 0, height: 0, deviceScaleFactor: native * scale, mobile: false });
+      }
     }
   }
 
@@ -220,19 +274,22 @@ export class ElectronHost implements BrowserHost {
         url: entry?.url,
         muted: entry?.muted,
         focused: cell.profileId !== undefined && cell.profileId === this.selected,
+        zoom: entry?.zoom,
+        scale: entry?.scale,
       };
     });
     this.onUi('tiles', {
       mode: this.mode,
       turbo: this.turbo,
       selected: this.selected,
-      open: this.entries.size,
+      open: this.shownIds().length,
+      overlay: this.overlay,
       tiles,
     });
   }
 }
 
-function setCpuRate(wc: WebContents, rate: number): void {
+function sendCdp(wc: WebContents, method: string, params: Record<string, unknown>): void {
   const dbg = wc.debugger;
   if (!dbg.isAttached()) {
     try {
@@ -241,5 +298,5 @@ function setCpuRate(wc: WebContents, rate: number): void {
       return;
     }
   }
-  dbg.sendCommand('Emulation.setCPUThrottlingRate', { rate }).catch(() => {});
+  dbg.sendCommand(method, params).catch(() => {});
 }
