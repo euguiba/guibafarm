@@ -1,15 +1,18 @@
-// Uma WebContentsView por conta, cada uma na sua partição. A janela mostra a conta
-// selecionada ou todas as abertas em grade.
+// Modo Electron: uma WebContentsView por conta, cada uma na sua partição. A janela
+// mostra a conta selecionada ou todas as abertas em grade.
 
-import { WebContentsView, type BaseWindow } from 'electron';
-import type { Profile } from './store';
+import { shell, WebContentsView, type BaseWindow } from 'electron';
+import type { PageControl } from '../core/actions';
+import type { BrowserHost, LayoutMode } from '../core/app-core';
+import type { Profile } from '../core/store';
+import type { CapturedEvent, GameModule } from '../sdk/types';
+import { attachCapture } from './capture';
 
 export const SIDEBAR_WIDTH = 340;
 
-export type LayoutMode = 'single' | 'grid';
-
-export class ViewManager {
+export class ElectronHost implements BrowserHost {
   private views = new Map<string, WebContentsView>();
+  private detachers = new Map<string, () => void>();
   private selected: string | undefined;
   private mode: LayoutMode = 'single';
 
@@ -17,27 +20,30 @@ export class ViewManager {
     win.on('resize', () => this.layout());
   }
 
-  open(profile: Profile, url: string, onCreated: (view: WebContentsView) => void): WebContentsView {
-    let view = this.views.get(profile.id);
-    if (!view) {
-      view = new WebContentsView({
-        webPreferences: {
-          partition: profile.partition,
-          contextIsolation: true,
-          sandbox: true,
-        },
+  async open(profile: Profile, game: GameModule, onCaptured: (event: CapturedEvent) => void): Promise<void> {
+    if (!this.views.has(profile.id)) {
+      const view = new WebContentsView({
+        webPreferences: { partition: profile.partition, contextIsolation: true, sandbox: true },
       });
       this.views.set(profile.id, view);
       this.win.contentView.addChildView(view);
-      onCreated(view);
-      void view.webContents.loadURL(url);
+      if (game.manifest.policy.read) {
+        this.detachers.set(profile.id, attachCapture(view.webContents, game.manifest.hosts, onCaptured));
+      }
+      // Links que abrem nova janela vão para o navegador padrão, fora da partição da conta.
+      view.webContents.setWindowOpenHandler(({ url }) => {
+        void shell.openExternal(url);
+        return { action: 'deny' };
+      });
+      void view.webContents.loadURL(game.manifest.startUrl);
     }
     this.selected = profile.id;
     this.layout();
-    return view;
   }
 
-  close(profileId: string): void {
+  async close(profileId: string): Promise<void> {
+    this.detachers.get(profileId)?.();
+    this.detachers.delete(profileId);
     const view = this.views.get(profileId);
     if (!view) return;
     this.win.contentView.removeChildView(view);
@@ -47,21 +53,25 @@ export class ViewManager {
     this.layout();
   }
 
-  get(profileId: string): WebContentsView | undefined {
-    return this.views.get(profileId);
-  }
-
   openIds(): string[] {
     return [...this.views.keys()];
   }
 
-  selectedId(): string | undefined {
-    return this.selected;
-  }
-
-  setMode(mode: LayoutMode): void {
+  setLayout(mode: LayoutMode): void {
     this.mode = mode;
     this.layout();
+  }
+
+  page(profileId: string): PageControl | undefined {
+    const wc = this.views.get(profileId)?.webContents;
+    if (!wc) return undefined;
+    return {
+      evaluate: (js) => wc.executeJavaScript(js, true),
+      click: async (x, y) => {
+        wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
+        wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
+      },
+    };
   }
 
   private layout(): void {

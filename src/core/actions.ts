@@ -1,10 +1,15 @@
 // Executa ações de automação de um módulo, só quando a política do jogo permite
 // e o usuário ligou a automação naquela conta. Toda ação passa por limite de ritmo e log.
 
-import type { WebContents } from 'electron';
 import type { ActionRequest, ActorContext, GameModule } from '../sdk/types';
 
 const MIN_INTERVAL_MS = 2_000;
+
+/** Controle da página de uma conta, fornecido pelo navegador em uso (Electron ou Edge). */
+export interface PageControl {
+  evaluate(js: string): Promise<unknown>;
+  click(x: number, y: number): Promise<void>;
+}
 
 export class ActionRunner {
   private enabled = new Set<string>();
@@ -23,15 +28,11 @@ export class ActionRunner {
     return true;
   }
 
-  isEnabled(profileId: string): boolean {
-    return this.enabled.has(profileId);
-  }
-
   stopAll(): void {
     this.enabled.clear();
   }
 
-  async run(profileId: string, game: GameModule, wc: WebContents, action: ActionRequest): Promise<string> {
+  async run(profileId: string, game: GameModule, page: PageControl, action: ActionRequest): Promise<string> {
     if (!this.canAutomate(game)) return `Automação desligada para ${game.manifest.name}: ${game.manifest.policy.note}`;
     if (!this.enabled.has(profileId)) return 'Ligue a automação nesta conta antes.';
     const now = Date.now();
@@ -39,11 +40,8 @@ export class ActionRunner {
     this.lastRun.set(profileId, now);
 
     const ctx: ActorContext = {
-      evaluate: (js) => wc.executeJavaScript(js, true),
-      click: async (x, y) => {
-        wc.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 });
-        wc.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 });
-      },
+      evaluate: (js) => page.evaluate(js),
+      click: (x, y) => page.click(x, y),
       log: (message) => this.log(profileId, message),
     };
     this.log(profileId, `ação ${action.kind} ${JSON.stringify(action.params)}`);
