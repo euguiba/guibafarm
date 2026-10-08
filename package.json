@@ -1,6 +1,6 @@
 {
   "name": "navegador-idle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Navegador desktop para jogos idle: perfis isolados por conta, analisador por jogo, assistente e lucro por hora.",
   "main": "dist/main/main.js",
@@ -9,10 +9,11 @@
     "start": "npm run build && electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test \"dist/**/*.test.js\"",
-    "dist": "npm run build && electron-builder --win nsis"
+    "dist": "npm run build && electron-builder --win nsis --publish never"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.132.0"
+    "@anthropic-ai/sdk": "^0.132.0",
+    "electron-updater": "^6.8.9"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
@@ -45,6 +46,18 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Navegador Idle",
       "runAfterFinish": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "euguiba",
+        "repo": "navegador-idle",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/euguiba/navegador-idle.git"
   }
 }

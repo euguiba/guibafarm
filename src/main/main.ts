@@ -4,6 +4,7 @@ import { app, BrowserWindow, ipcMain, Notification } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppCore } from '../core/app-core';
+import { startUpdater } from './updater';
 import { ElectronHost } from './views';
 
 // Mesma pasta de dados no "npm start" e no app instalado, para não perder contas e logins.
@@ -43,6 +44,10 @@ app.whenReady().then(() => {
       new Notification({ title, body }).show();
     }
   });
+  const updater = startUpdater((status) => send('update', status));
+  ipcMain.handle('update:status', () => updater.status());
+  ipcMain.handle('update:check', () => updater.check());
+  ipcMain.handle('update:install', () => updater.install());
   ipcMain.handle('app:relaunch', () => {
     app.relaunch();
     app.quit();

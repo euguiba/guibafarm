@@ -47,6 +47,13 @@ interface UiRecommendation {
   action?: { kind: string; params: Record<string, unknown> };
 }
 
+interface UiUpdate {
+  current: string;
+  state: 'off' | 'idle' | 'checking' | 'downloading' | 'ready' | 'error';
+  version?: string;
+  percent?: number;
+}
+
 interface UiAlert {
   profileId: string;
   kind: string;
@@ -152,6 +159,9 @@ interface Window {
     setZoom(id: string, zoom: number): Promise<number | undefined>;
     setOverlay(hidden: boolean): Promise<void>;
     relaunch(): Promise<void>;
+    updateStatus(): Promise<UiUpdate>;
+    checkUpdate(): Promise<void>;
+    installUpdate(): Promise<void>;
     setSidebarCollapsed(collapsed: boolean): Promise<void>;
     setTurbo(on: boolean): Promise<void>;
     selectView(id: string): Promise<void>;
@@ -169,7 +179,7 @@ interface Window {
     setAutomation(id: string, on: boolean): Promise<boolean>;
     runAction(id: string, rec: UiRecommendation): Promise<string>;
     ask(id: string, question: string): Promise<string>;
-    on(channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles', listener: (payload: any) => void): void;
+    on(channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update', listener: (payload: any) => void): void;
   };
 }
 
@@ -837,6 +847,25 @@ function initSettings(): void {
   );
 }
 
+// Atualização: botão dourado na barra de cima quando a versão nova já foi baixada.
+function renderUpdate(u: UiUpdate): void {
+  $('app-version').textContent = u.current;
+  const btn = $('update-btn');
+  btn.hidden = u.state !== 'ready' && u.state !== 'downloading';
+  btn.classList.toggle('ready', u.state === 'ready');
+  btn.textContent = u.state === 'ready' ? `Atualizar para ${u.version}` : `Baixando ${u.version ?? ''} ${u.percent ?? 0}%`;
+  btn.title = u.state === 'ready' ? 'Fecha, instala a versão nova e abre de novo. Os logins ficam salvos.' : 'Baixando a versão nova em segundo plano';
+  const text: Record<UiUpdate['state'], string> = {
+    off: 'Atualização automática só funciona no app instalado.',
+    idle: 'Você está na versão mais nova. O app procura atualizações sozinho.',
+    checking: 'Procurando atualização…',
+    downloading: `Baixando a versão ${u.version ?? ''} (${u.percent ?? 0}%).`,
+    ready: `Versão ${u.version} baixada. Clique em "Atualizar" na barra de cima.`,
+    error: 'Não deu para procurar agora (sem internet?). Tenta de novo mais tarde.',
+  };
+  $('update-text').textContent = text[u.state];
+}
+
 async function init(): Promise<void> {
   games = await window.api.listGames();
   const sel = $<HTMLSelectElement>('game-select');
@@ -948,6 +977,10 @@ async function init(): Promise<void> {
 
   renderAlerts(await window.api.listAlerts());
   await renderProfiles();
+  window.api.on('update', (u: UiUpdate) => renderUpdate(u));
+  renderUpdate(await window.api.updateStatus());
+  $('update-btn').addEventListener('click', () => { if ($('update-btn').classList.contains('ready')) void window.api.installUpdate(); });
+  $('check-update').addEventListener('click', () => void window.api.checkUpdate());
 }
 
 void init();

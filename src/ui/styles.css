@@ -500,3 +500,8 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 #editor[hidden] { display: none; }
 #edit-btn { display: inline-flex; align-items: center; justify-content: center; padding: 4px 7px; color: var(--text2); }
 #edit-btn:hover, #edit-btn.on { color: var(--gold-hi); background: var(--gold-soft); border-color: rgba(224, 176, 74, 0.45); }
+
+/* Atualização baixada: botão dourado na barra de cima. */
+.update-btn { font-size: 12.5px; padding: 5px 11px; color: var(--text2); white-space: nowrap; }
+.update-btn.ready { color: #1a1407; background: var(--gold); border-color: var(--gold); font-weight: 700; }
+.update-btn.ready:hover { background: var(--gold-hi); }

@@ -63,3 +63,9 @@ src/
 | RollerCoin | Desligada | Termos 1.10 e 2.2 proíbem bots e macros |
 
 Para ligar num jogo: mude `policy.automate` no manifesto e implemente o `actor` do módulo.
+
+## Atualizações
+
+O app instalado procura versões novas nas [releases do GitHub](https://github.com/euguiba/navegador-idle/releases), baixa em segundo plano e mostra "Atualizar para x.y.z" na barra de cima. Os logins das contas ficam salvos.
+
+Para lançar uma versão: aumente `version` no `package.json`, crie a tag `v<versão>` e envie. O GitHub Actions (`.github/workflows/release.yml`) gera o instalador num Windows e publica a release.

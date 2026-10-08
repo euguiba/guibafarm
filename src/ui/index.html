@@ -110,6 +110,7 @@
       <div class="meter" title="Memória usada pelo app"><span>RAM</span><b id="m-ram">—</b></div>
       <button id="turbo" class="toggle" title="Desacelera as telas fora de foco para sobrar desempenho para a que você está usando">Turbo <b>off</b></button>
       <button id="reload-all" class="ghost" title="Recarregar todas as contas abertas">⟳</button>
+      <button id="update-btn" class="update-btn" hidden></button>
       <button id="topbar-settings" class="ghost" title="Configurações de desempenho">⚙</button>
     </header>
     <main id="stage"><div id="empty">Adicione uma conta e clique em Abrir.</div></main>
@@ -155,6 +156,10 @@
       <div class="setting">
         <div><b>Aceleração de hardware</b><span>Usa a placa de vídeo. Desligue só se as telas piscarem ou ficarem pretas. Vale depois de reabrir o app.</span></div>
         <label class="switch"><input type="checkbox" id="set-gpu" /><i></i></label>
+      </div>
+      <div class="setting">
+        <div><b>Versão <span id="app-version"></span></b><span id="update-text">O app procura atualizações sozinho e instala quando você reabrir.</span></div>
+        <button id="check-update" class="ghost small">Procurar agora</button>
       </div>
       <p id="restart-note" class="restart" hidden>Reabra o app para trocar a aceleração de hardware. <button id="relaunch" class="primary small">Reabrir agora</button></p>
     </div>

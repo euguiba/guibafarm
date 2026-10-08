@@ -26,6 +26,9 @@ contextBridge.exposeInMainWorld('api', {
   setSettings: invoke('settings:set'),
   setOverlay: invoke('overlay:set'),
   relaunch: invoke('app:relaunch'),
+  updateStatus: invoke('update:status'),
+  checkUpdate: invoke('update:check'),
+  installUpdate: invoke('update:install'),
   selectView: invoke('view:select'),
   reloadView: invoke('view:reload'),
   muteView: invoke('view:mute'),
@@ -41,7 +44,7 @@ contextBridge.exposeInMainWorld('api', {
   setAutomation: invoke('automation:set'),
   runAction: invoke('action:run'),
   ask: invoke('assistant:ask'),
-  on: (channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles', listener: (payload: unknown) => void) => {
+  on: (channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update', listener: (payload: unknown) => void) => {
     ipcRenderer.on(channel, (_e, payload) => listener(payload));
   },
 });
