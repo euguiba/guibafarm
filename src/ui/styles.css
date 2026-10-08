@@ -36,6 +36,13 @@ ul { list-style: none; margin: 0; padding: 0; }
 .rec { border-left: 3px solid var(--accent); padding: 4px 8px; margin-bottom: 6px; }
 .rec .title { font-weight: 600; }
 .rec.alert { border-color: var(--warn); }
+.filters { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-bottom: 6px; }
+.hunt { border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; margin-bottom: 6px; }
+.hunt.best { border-color: var(--accent); }
+.hunt .title { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+.hunt .rates { font-variant-numeric: tabular-nums; }
+#hunt-sessions li { padding: 3px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+details summary { cursor: pointer; color: var(--muted); margin: 4px 0; }
 dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0; }
 dt { color: var(--muted); }
 dd { margin: 0; }

@@ -12,6 +12,8 @@ import { Store, type Profile } from './store';
 import { ViewManager, type LayoutMode } from './views';
 
 const ANALYZE_EVERY_MS = 15_000;
+const LEVEL_BAND = 10; // "perto do meu nível" no comparador de caçadas
+const RECENT_SESSIONS = 15;
 
 let win: BrowserWindow;
 let store: Store;
@@ -64,7 +66,7 @@ function openProfile(profile: Profile): void {
 }
 
 function registerIpc(): void {
-  ipcMain.handle('games:list', () => GAMES.map((g) => ({ ...g.manifest, hasAnalyzer: !!g.analyzer, hasActor: !!g.actor })));
+  ipcMain.handle('games:list', () => GAMES.map((g) => ({ ...g.manifest, hasAnalyzer: !!g.analyzer, hasHunts: !!g.hunts, hasActor: !!g.actor })));
 
   ipcMain.handle('profiles:list', () =>
     store.listProfiles().map((p) => ({ ...p, open: views.openIds().includes(p.id), recording: recording.has(p.id) })),
@@ -112,6 +114,27 @@ function registerIpc(): void {
   ipcMain.handle('recommendations:get', (_e, id: string) => {
     const profile = store.getProfile(id);
     return profile ? analyze(profile) : [];
+  });
+
+  ipcMain.handle('hunts:compare', (_e, id: string, opts: { allAccounts: boolean; nearLevel: boolean }) => {
+    const profile = store.getProfile(id);
+    if (!profile) return undefined;
+    const game = gameOf(profile);
+    if (!game.hunts) return undefined;
+    const prices = store.getPrices();
+    const accounts = opts.allAccounts ? store.listProfiles().filter((p) => p.gameId === profile.gameId) : [profile];
+    const level = store.latestState(id)?.character.level;
+    let sessions = accounts.flatMap((p) => game.hunts!.sessions(store.getHistory(p.id), prices));
+    if (opts.nearLevel && level !== undefined) {
+      sessions = sessions.filter((s) => s.level !== undefined && Math.abs(s.level - level) <= LEVEL_BAND);
+    }
+    return {
+      level,
+      levelBand: LEVEL_BAND,
+      labels: Object.fromEntries(accounts.map((p) => [p.id, p.label])),
+      summaries: game.hunts.summarize(sessions, prices),
+      recent: sessions.sort((a, b) => b.end - a.end).slice(0, RECENT_SESSIONS),
+    };
   });
 
   ipcMain.handle('prices:get', () => store.getPrices());

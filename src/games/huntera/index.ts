@@ -6,7 +6,7 @@
 
 import { readEvent, type FieldAliases } from '../../sdk/json-fields';
 import type { GameModule } from '../../sdk/types';
-import { hunteraAnalyzer } from './analyzer';
+import { hunteraAnalyzer, hunteraHunts } from './analyzer';
 
 export const HUNTERA_FIELDS: FieldAliases = {
   name: ['characterName', 'charName', 'name'],
@@ -33,9 +33,9 @@ export const huntera: GameModule = {
     policy: {
       read: true,
       recommend: true,
-      // Ligar só depois de ler as regras oficiais e mapear o protocolo no teste de rede.
+      // As regras do Huntera não aceitam automação; não implementar actor.
       automate: false,
-      note: 'Automação desligada até lermos as regras oficiais do Huntera e mapearmos o protocolo.',
+      note: 'As regras do Huntera não aceitam automação. O app só lê e recomenda.',
     },
   },
   reader: {
@@ -44,4 +44,5 @@ export const huntera: GameModule = {
     },
   },
   analyzer: hunteraAnalyzer,
+  hunts: hunteraHunts,
 };

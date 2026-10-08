@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { GameState, PriceBook } from '../../sdk/types';
-import { huntStats, hunteraAnalyzer } from './analyzer';
+import { huntSessions, huntStats, hunteraAnalyzer, summarizeHunts } from './analyzer';
 import { huntera } from './index';
 
 const MIN = 60_000;
@@ -67,6 +67,36 @@ test('alerta quando a XP para de subir', () => {
   const stuck = [state(0, 'Cyclops', 1000, 0), state(5, 'Cyclops', 2000, 100), state(20, 'Cyclops', 2000, 100)];
   const recs = hunteraAnalyzer.analyze(stuck, noPrices, 20 * MIN);
   assert.equal(recs.at(0)?.id, 'idle-alert');
+});
+
+test('separa sessões quando o app ficou fechado e não conta o tempo parado', () => {
+  // 10 min caçando, 2h sem leitura, mais 10 min no mesmo local.
+  const h = [state(0, 'Cyclops', 0, 0), state(10, 'Cyclops', 10_000, 1000), state(130, 'Cyclops', 10_000, 1000), state(140, 'Cyclops', 20_000, 2000)];
+  const sessions = huntSessions(h, noPrices);
+  assert.equal(sessions.length, 2);
+  const [cyc] = huntStats(h, noPrices);
+  assert.equal(cyc.durationMs, 20 * MIN);
+  assert.equal(cyc.goldPerHour, 6000);
+  assert.equal(cyc.sessions, 2);
+});
+
+test('compara caçadas de várias contas com faixa de nível', () => {
+  const other = (minute: number, location: string, level: number, experience: number, gold: number): GameState => ({
+    ...state(minute, location, experience, gold),
+    profileId: 'p2',
+    character: { experience, level },
+  });
+  const p1 = history.map((s) => ({ ...s, character: { ...s.character, level: 30 } }));
+  const p2 = [other(0, 'Cyclops', 40, 0, 0), other(60, 'Cyclops', 41, 60_000, 30_000)];
+  const prices: PriceBook = { currencyBrlPer1k: { gold: 0.5 }, itemBrl: {} };
+  const sessions = [...huntSessions(p1, prices), ...huntSessions(p2, prices)];
+  const cyc = summarizeHunts(sessions, prices).find((s) => s.location === 'Cyclops')!;
+  assert.deepEqual(cyc.profileIds, ['p1', 'p2']);
+  assert.equal(cyc.minLevel, 30);
+  assert.equal(cyc.maxLevel, 40);
+  assert.equal(cyc.durationMs, 90 * MIN);
+  assert.equal(cyc.goldPerHour, 26_000); // (9.000 + 30.000) em 1,5h
+  assert.equal(cyc.brlPerHour, 13);
 });
 
 test('leitor genérico extrai estado de JSON e de frames Socket.IO', () => {

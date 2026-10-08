@@ -1,23 +1,17 @@
 // Analisador do Huntera: mede ouro e XP por hora em cada caça a partir do histórico
 // de estados da conta e recomenda onde caçar.
 
-import type { Analyzer, GameState, PriceBook, Recommendation } from '../../sdk/types';
+import type { Analyzer, GameState, HuntComparer, HuntSession, HuntSummary, PriceBook, Recommendation } from '../../sdk/types';
 
 const MIN_SEGMENT_MS = 5 * 60_000;
+// Sem leitura por mais que isso, o app estava fechado: começa outra sessão.
+const MAX_GAP_MS = 15 * 60_000;
 const IDLE_ALERT_MS = 10 * 60_000;
 const SWITCH_THRESHOLD = 0.7; // sugerir troca se a caça atual render menos que 70% da melhor
 const UNKNOWN_LOCATION = 'local desconhecido';
 const HOUR_MS = 3_600_000;
 
-export interface HuntStats {
-  location: string;
-  durationMs: number;
-  experience: number;
-  gold: number;
-  xpPerHour: number;
-  goldPerHour: number;
-  brlPerHour?: number;
-}
+export type HuntStats = HuntSummary;
 
 interface Segment {
   location: string;
@@ -30,7 +24,7 @@ function segmentsByLocation(history: GameState[]): Segment[] {
   for (const state of history) {
     const location = state.location ?? UNKNOWN_LOCATION;
     const current = segments.at(-1);
-    if (current && current.location === location) current.last = state;
+    if (current && current.location === location && state.at - current.last.at <= MAX_GAP_MS) current.last = state;
     else segments.push({ location, first: state, last: state });
   }
   return segments;
@@ -40,33 +34,67 @@ function delta(first: number | undefined, last: number | undefined): number {
   return first === undefined || last === undefined ? 0 : last - first;
 }
 
-export function huntStats(history: GameState[], prices: PriceBook): HuntStats[] {
+function toBrl(goldPerHour: number, prices: PriceBook): number | undefined {
+  const goldRate = prices.currencyBrlPer1k.gold;
+  return goldRate === undefined ? undefined : (goldPerHour / 1000) * goldRate;
+}
+
+export function huntSessions(history: GameState[], prices: PriceBook): HuntSession[] {
   const sorted = [...history].sort((a, b) => a.at - b.at);
-  const totals = new Map<string, { durationMs: number; experience: number; gold: number }>();
+  const sessions: HuntSession[] = [];
   for (const seg of segmentsByLocation(sorted)) {
     const durationMs = seg.last.at - seg.first.at;
     if (durationMs < MIN_SEGMENT_MS) continue;
-    const t = totals.get(seg.location) ?? { durationMs: 0, experience: 0, gold: 0 };
-    t.durationMs += durationMs;
-    t.experience += delta(seg.first.character.experience, seg.last.character.experience);
-    t.gold += delta(seg.first.resources.gold, seg.last.resources.gold);
-    totals.set(seg.location, t);
+    const hours = durationMs / HOUR_MS;
+    const experience = delta(seg.first.character.experience, seg.last.character.experience);
+    const gold = delta(seg.first.resources.gold, seg.last.resources.gold);
+    sessions.push({
+      profileId: seg.first.profileId,
+      location: seg.location,
+      start: seg.first.at,
+      end: seg.last.at,
+      level: seg.first.character.level ?? seg.last.character.level,
+      vocation: seg.last.character.vocation ?? seg.first.character.vocation,
+      experience,
+      gold,
+      xpPerHour: experience / hours,
+      goldPerHour: gold / hours,
+      brlPerHour: toBrl(gold / hours, prices),
+    });
   }
-  const goldRate = prices.currencyBrlPer1k.gold;
-  return [...totals.entries()].map(([location, t]) => {
-    const hours = t.durationMs / HOUR_MS;
-    const goldPerHour = t.gold / hours;
+  return sessions;
+}
+
+export function summarizeHunts(sessions: HuntSession[], prices: PriceBook): HuntSummary[] {
+  const byLocation = new Map<string, HuntSession[]>();
+  for (const s of sessions) byLocation.set(s.location, [...(byLocation.get(s.location) ?? []), s]);
+  return [...byLocation.entries()].map(([location, list]) => {
+    const durationMs = list.reduce((sum, s) => sum + (s.end - s.start), 0);
+    const experience = list.reduce((sum, s) => sum + s.experience, 0);
+    const gold = list.reduce((sum, s) => sum + s.gold, 0);
+    const levels = list.map((s) => s.level).filter((l): l is number => l !== undefined);
+    const hours = durationMs / HOUR_MS;
     return {
       location,
-      durationMs: t.durationMs,
-      experience: t.experience,
-      gold: t.gold,
-      xpPerHour: t.experience / hours,
-      goldPerHour,
-      brlPerHour: goldRate === undefined ? undefined : (goldPerHour / 1000) * goldRate,
+      profileIds: [...new Set(list.map((s) => s.profileId))],
+      sessions: list.length,
+      minLevel: levels.length ? Math.min(...levels) : undefined,
+      maxLevel: levels.length ? Math.max(...levels) : undefined,
+      durationMs,
+      experience,
+      gold,
+      xpPerHour: experience / hours,
+      goldPerHour: gold / hours,
+      brlPerHour: toBrl(gold / hours, prices),
     };
   });
 }
+
+export function huntStats(history: GameState[], prices: PriceBook): HuntStats[] {
+  return summarizeHunts(huntSessions(history, prices), prices);
+}
+
+export const hunteraHunts: HuntComparer = { sessions: huntSessions, summarize: summarizeHunts };
 
 function fmt(n: number): string {
   return Math.round(n).toLocaleString('pt-BR');

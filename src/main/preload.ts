@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('api', {
   setRecording: invoke('record:set'),
   getState: invoke('state:get'),
   getRecommendations: invoke('recommendations:get'),
+  compareHunts: invoke('hunts:compare'),
   getPrices: invoke('prices:get'),
   setPrices: invoke('prices:set'),
   setAutomation: invoke('automation:set'),

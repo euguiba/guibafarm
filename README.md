@@ -54,7 +54,7 @@ src/
 
 | Jogo | Automação | Motivo |
 | --- | --- | --- |
-| Huntera | Desligada por enquanto | Falta ler as regras oficiais e mapear o protocolo |
+| Huntera | Desligada | Regras do jogo não aceitam automação |
 | Poke Idle World | Desligada | Regras proíbem scripts, extensões e macros sem permissão da staff; limite de 4 contas |
 | Leveling Idle | Desligada | Sem regras públicas; confirmar com a staff |
 | RollerCoin | Desligada | Termos 1.10 e 2.2 proíbem bots e macros |

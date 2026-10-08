@@ -5,6 +5,7 @@ interface UiGame {
   name: string;
   maxAccounts?: number;
   hasAnalyzer: boolean;
+  hasHunts: boolean;
   hasActor: boolean;
   policy: { read: boolean; recommend: boolean; automate: boolean; note: string };
 }
@@ -34,6 +35,37 @@ interface UiRecommendation {
   action?: { kind: string; params: Record<string, unknown> };
 }
 
+interface UiHuntSession {
+  profileId: string;
+  location: string;
+  start: number;
+  end: number;
+  level?: number;
+  xpPerHour: number;
+  goldPerHour: number;
+  brlPerHour?: number;
+}
+
+interface UiHuntSummary {
+  location: string;
+  profileIds: string[];
+  sessions: number;
+  minLevel?: number;
+  maxLevel?: number;
+  durationMs: number;
+  xpPerHour: number;
+  goldPerHour: number;
+  brlPerHour?: number;
+}
+
+interface UiHuntComparison {
+  level?: number;
+  levelBand: number;
+  labels: Record<string, string>;
+  summaries: UiHuntSummary[];
+  recent: UiHuntSession[];
+}
+
 interface UiPrices {
   currencyBrlPer1k: Record<string, number>;
   itemBrl: Record<string, number>;
@@ -51,6 +83,7 @@ interface Window {
     setRecording(id: string, on: boolean): Promise<string>;
     getState(id: string): Promise<UiState | undefined>;
     getRecommendations(id: string): Promise<UiRecommendation[]>;
+    compareHunts(id: string, opts: { allAccounts: boolean; nearLevel: boolean }): Promise<UiHuntComparison | undefined>;
     getPrices(): Promise<UiPrices>;
     setPrices(prices: UiPrices): Promise<void>;
     setAutomation(id: string, on: boolean): Promise<boolean>;
@@ -154,16 +187,92 @@ function renderRecs(recs: UiRecommendation[]): void {
   }
 }
 
+function brl(n: number): string {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function duration(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  return min < 60 ? `${min} min` : `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`;
+}
+
+function levelRange(min?: number, max?: number): string {
+  if (min === undefined || max === undefined) return 'nível ?';
+  return min === max ? `nível ${min}` : `nível ${min}–${max}`;
+}
+
+function rates(r: { xpPerHour: number; goldPerHour: number; brlPerHour?: number }): string {
+  const parts = [`${num(Math.round(r.goldPerHour))} ouro/h`, `${num(Math.round(r.xpPerHour))} XP/h`];
+  if (r.brlPerHour !== undefined) parts.unshift(`${brl(r.brlPerHour)}/h`);
+  return parts.join(' · ');
+}
+
+async function renderHunts(): Promise<void> {
+  const id = selectedId;
+  const section = $('hunts-section');
+  const game = games.find((g) => g.id === currentGameId);
+  section.hidden = !game?.hasHunts;
+  if (!id || section.hidden) return;
+
+  const data = await window.api.compareHunts(id, {
+    allAccounts: $<HTMLInputElement>('hunts-all').checked,
+    nearLevel: $<HTMLInputElement>('hunts-near').checked,
+  });
+  if (id !== selectedId || !data) return;
+  $('hunts-near-label').textContent =
+    data.level === undefined ? 'Perto do meu nível (nível ainda não lido)' : `Perto do meu nível (${data.level} ± ${data.levelBand})`;
+
+  const byXp = $<HTMLSelectElement>('hunts-sort').value === 'xp';
+  const money = (s: UiHuntSummary) => s.brlPerHour ?? s.goldPerHour;
+  const sorted = [...data.summaries].sort((a, b) => (byXp ? b.xpPerHour - a.xpPerHour : money(b) - money(a)));
+
+  const ul = $<HTMLUListElement>('hunts');
+  ul.replaceChildren();
+  if (sorted.length === 0) {
+    ul.append(el('li', 'muted', 'Nenhuma caçada medida ainda. Cada trecho num local precisa de pelo menos 5 minutos.'));
+  }
+  sorted.forEach((s, i) => {
+    const li = el('li', i === 0 ? 'hunt best' : 'hunt');
+    const title = el('div', 'title');
+    title.append(el('span', undefined, `${i + 1}. ${s.location}`), el('span', 'muted', duration(s.durationMs)));
+    const accounts = s.profileIds.map((p) => data.labels[p] ?? p).join(', ');
+    li.append(
+      title,
+      el('div', 'rates', rates(s)),
+      el('div', 'badge', `${levelRange(s.minLevel, s.maxLevel)} · ${s.sessions} ${s.sessions === 1 ? 'sessão' : 'sessões'} · ${accounts}`),
+    );
+    ul.append(li);
+  });
+
+  const sessions = $<HTMLUListElement>('hunt-sessions');
+  sessions.replaceChildren();
+  for (const s of data.recent) {
+    const when = new Date(s.start).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    const who = data.labels[s.profileId] ?? s.profileId;
+    const li = el('li');
+    li.append(
+      el('div', undefined, `${when} · ${who} · ${s.location} · ${duration(s.end - s.start)}${s.level !== undefined ? ` · nível ${s.level}` : ''}`),
+      el('div', 'muted rates', rates(s)),
+    );
+    sessions.append(li);
+  }
+  if (data.recent.length === 0) sessions.append(el('li', 'muted', 'Nenhuma sessão ainda.'));
+}
+
+let currentGameId: string | undefined;
+
 async function select(id: string): Promise<void> {
   selectedId = id;
   const profiles = await window.api.listProfiles();
   const p = profiles.find((x) => x.id === id);
   if (!p) return;
   const game = gameById(p.gameId);
+  currentGameId = p.gameId;
   $('detail').hidden = false;
   $('detail-title').textContent = `${p.label} · ${game?.name ?? p.gameId}`;
   renderState(await window.api.getState(id));
   renderRecs(await window.api.getRecommendations(id));
+  await renderHunts();
   const auto = $<HTMLInputElement>('automation');
   auto.checked = false;
   auto.disabled = !(game?.policy.automate && game.hasActor);
@@ -211,6 +320,7 @@ async function init(): Promise<void> {
     else delete current.currencyBrlPer1k.gold;
     await window.api.setPrices(current);
     if (selectedId) renderRecs(await window.api.getRecommendations(selectedId));
+    await renderHunts();
   });
 
   $<HTMLInputElement>('automation').addEventListener('change', async (ev) => {
@@ -239,8 +349,11 @@ async function init(): Promise<void> {
     if (state.profileId === selectedId) renderState(state);
   });
   window.api.on('recommendations', (p: { profileId: string; recommendations: UiRecommendation[] }) => {
-    if (p.profileId === selectedId) renderRecs(p.recommendations);
+    if (p.profileId !== selectedId) return;
+    renderRecs(p.recommendations);
+    void renderHunts();
   });
+  for (const fid of ['hunts-all', 'hunts-near', 'hunts-sort']) $(fid).addEventListener('change', () => void renderHunts());
   window.api.on('log', (entry: { profileId: string; message: string }) => console.log('[automação]', entry.profileId, entry.message));
 
   await renderProfiles();
