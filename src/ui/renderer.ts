@@ -227,6 +227,7 @@ async function renderProfiles(): Promise<void> {
   $('group-count').hidden = !activeGroup;
   renderRailAccounts(mine);
   $('empty').hidden = mine.some((p) => p.open);
+  if (!$('editor').hidden) renderEditor();
 }
 
 function renderGroups(groups: UiGroup[]): void {
@@ -257,8 +258,7 @@ function renderRailAccounts(profiles: UiProfile[]): void {
     if (role) { b.textContent = role.short; b.style.setProperty('--acc', role.color); }
     else {
       b.style.setProperty('--acc', colorOf(p.id));
-      if (p.icon && ICONS[p.icon]) b.append(iconNode(p.icon, 16));
-      else b.textContent = initials(p.label);
+      b.textContent = initials(p.label);
     }
     if (p.open) b.classList.add('open');
     if (p.id === selectedId) b.classList.add('selected');
@@ -271,42 +271,112 @@ function renderRailAccounts(profiles: UiProfile[]): void {
   }
 }
 
-// Editor da página: nome próprio (ex.: "Equipe Principal") e ícone.
-function renderGroupEditor(): void {
-  const box = $('icon-picker');
+// Editor único (botão ✎ no topo): escolhe o jogo da página ou um dos perfis dela e edita ali mesmo.
+// O jogo tem nome e ícone (o ícone aparece na faixa de páginas); o perfil tem nome e vocação.
+let editTarget = '';
+
+function openEditor(target = editTarget): void {
+  editTarget = target;
+  renderEditor();
+  $('editor').hidden = false;
+  $('edit-btn').classList.add('on');
+}
+
+function closeEditor(): void {
+  $('editor').hidden = true;
+  $('edit-btn').classList.remove('on');
+}
+
+function renderEditor(): void {
+  const box = $('editor');
   box.replaceChildren();
-  if (!activeGroup) return;
-  const key = activeGroup.key;
-  const input = document.createElement('input');
-  input.value = activeGroup.label;
-  input.maxLength = 60;
-  input.placeholder = 'Nome da página';
-  const grid = el('div', 'icon-grid');
-  let icon = activeGroup.icon;
-  for (const id of groupIcons) {
-    const b = el('button', 'pick');
-    b.append(iconNode(id, 16));
-    b.classList.toggle('active', id === icon);
-    b.addEventListener('click', () => {
-      icon = id;
-      grid.querySelectorAll('.pick').forEach((x) => x.classList.toggle('active', x === b));
-    });
-    grid.append(b);
+  if (!activeGroup) {
+    box.append(el('p', 'muted', 'Adicione um jogo primeiro.'));
+    return;
   }
+  const mine = profilesCache.filter((p) => p.group === activeGroup!.key);
+  if (editTarget && !mine.some((p) => p.id === editTarget)) editTarget = '';
+
+  const pick = document.createElement('select');
+  const add = (value: string, text: string) => {
+    const o = document.createElement('option');
+    o.value = value;
+    o.textContent = text;
+    pick.append(o);
+  };
+  add('', `Jogo · ${activeGroup.label}`);
+  for (const p of mine) add(p.id, `Perfil · ${p.label}`);
+  pick.value = editTarget;
+  pick.addEventListener('change', () => { editTarget = pick.value; renderEditor(); });
+  box.append(el('label', 'field-label', 'Editar'), pick);
+
+  const warn = el('p', 'warning');
+  warn.hidden = true;
   const row = el('div', 'row');
   const save = el('button', 'primary grow', 'Salvar');
-  const cancel = el('button', 'ghost', 'Cancelar');
-  save.addEventListener('click', async () => {
-    await window.api.renameGroup(key, input.value);
-    if (ICONS[icon]) await window.api.setGroupIcon(key, icon);
-    box.hidden = true;
-    await renderProfiles();
-  });
-  cancel.addEventListener('click', () => { box.hidden = true; });
-  input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') save.click(); if (ev.key === 'Escape') cancel.click(); });
+  const cancel = el('button', 'ghost', 'Fechar');
+  cancel.addEventListener('click', closeEditor);
   row.append(save, cancel);
-  box.append(el('label', 'field-label', 'Nome da página'), input, el('label', 'field-label', 'Ícone'), grid, row);
-  setTimeout(() => input.focus(), 0);
+
+  const nameInput = document.createElement('input');
+  nameInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') save.click(); if (ev.key === 'Escape') closeEditor(); });
+  const profile = mine.find((p) => p.id === editTarget);
+
+  if (!profile) {
+    const key = activeGroup.key;
+    nameInput.value = activeGroup.label;
+    nameInput.maxLength = 60;
+    nameInput.placeholder = 'Nome do jogo';
+    let icon = activeGroup.icon;
+    const grid = el('div', 'icon-grid');
+    for (const id of groupIcons) {
+      const b = el('button', 'pick');
+      b.append(iconNode(id, 16));
+      b.title = ICONS[id]?.name ?? id;
+      b.classList.toggle('active', id === icon);
+      b.addEventListener('click', () => {
+        icon = id;
+        grid.querySelectorAll('.pick').forEach((x) => x.classList.toggle('active', x === b));
+      });
+      grid.append(b);
+    }
+    save.addEventListener('click', async () => {
+      await window.api.renameGroup(key, nameInput.value);
+      if (ICONS[icon]) await window.api.setGroupIcon(key, icon);
+      await renderProfiles();
+    });
+    box.append(el('label', 'field-label', 'Nome do jogo'), nameInput, el('label', 'field-label', 'Ícone da aba'), grid);
+  } else {
+    const game = gameById(profile.gameId);
+    nameInput.value = profile.label;
+    nameInput.maxLength = 40;
+    nameInput.placeholder = 'Nome do perfil';
+    box.append(el('label', 'field-label', 'Nome do perfil'), nameInput);
+    let vocation = profile.vocation ?? '';
+    if (game?.roles?.length) {
+      const chips = el('div', 'chips');
+      const chip = (id: string, text: string, color?: string) => {
+        const c = el('button', 'chip', text);
+        if (color) c.style.setProperty('--voc', color);
+        c.classList.toggle('active', vocation === id);
+        c.addEventListener('click', () => {
+          vocation = id;
+          chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c));
+        });
+        chips.append(c);
+      };
+      chip('', 'Nenhuma');
+      for (const r of game.roles) chip(r.id, `${r.short} · ${r.name}`, r.color);
+      box.append(el('label', 'field-label', 'Vocação'), chips);
+    }
+    save.addEventListener('click', async () => {
+      const res = await window.api.updateProfile(profile.id, { label: nameInput.value, vocation, icon: '' });
+      if (res.error) { warn.textContent = res.error; warn.hidden = false; return; }
+      await renderProfiles();
+    });
+  }
+  box.append(warn, row);
+  setTimeout(() => nameInput.focus(), 0);
 }
 
 async function setCollapsed(collapsed: boolean): Promise<void> {
@@ -353,7 +423,7 @@ function roleOf(p: UiProfile): UiRole | undefined {
   return gameById(p.gameId)?.roles?.find((r) => r.id === p.vocation);
 }
 
-/** Selo da conta: vocação do jogo (sigla colorida), ícone escolhido ou as iniciais. */
+/** Selo da conta: vocação do jogo (sigla colorida) ou as iniciais. */
 function badgeOf(p: UiProfile): HTMLElement {
   const role = roleOf(p);
   if (role) {
@@ -364,16 +434,13 @@ function badgeOf(p: UiProfile): HTMLElement {
   }
   const b = el('span', 'badge-ico');
   b.style.setProperty('--acc', colorOf(p.id));
-  if (p.icon && ICONS[p.icon]) b.append(iconNode(p.icon, 14));
-  else b.textContent = initials(p.label);
+  b.textContent = initials(p.label);
   return b;
 }
 
-let editingId: string | undefined;
 let dragId: string | undefined;
 
 function profileItem(p: UiProfile, game: UiGame): HTMLElement {
-  if (p.id === editingId) return profileEditor(p, game);
   const li = el('li', 'acct');
   li.style.setProperty('--acc', colorOf(p.id));
   li.dataset.id = p.id;
@@ -404,7 +471,6 @@ function profileItem(p: UiProfile, game: UiGame): HTMLElement {
   };
   if (p.open) button('■ Fechar', 'Fechar a conta', () => window.api.closeProfile(p.id));
   else button('▶ Abrir', 'Abrir a conta', async () => { await window.api.openProfile(p.id); await select(p.id); }, 'primary');
-  button('✎ Editar', 'Nome, vocação e ícone', async () => { editingId = p.id; });
   if (game.policy.read) {
     button(p.recording ? 'Parar gravação' : 'Gravar', 'Gravar o tráfego para ajustar o leitor', async () => {
       const dir = await window.api.setRecording(p.id, !p.recording);
@@ -444,74 +510,6 @@ async function moveProfile(from: string, to: string): Promise<void> {
   const next = all.map((id) => (group.includes(id) ? order[i++] : id));
   await window.api.reorderProfiles(next);
   await renderProfiles();
-}
-
-function profileEditor(p: UiProfile, game: UiGame): HTMLElement {
-  const li = el('li', 'acct editing');
-  li.style.setProperty('--acc', colorOf(p.id));
-  let vocation = p.vocation ?? '';
-  let icon = p.icon ?? '';
-
-  const nameInput = document.createElement('input');
-  nameInput.value = p.label;
-  nameInput.maxLength = 40;
-  nameInput.placeholder = 'Nome da conta';
-  li.append(el('label', 'field-label', 'Nome'), nameInput);
-
-  if (game.roles?.length) {
-    li.append(el('label', 'field-label', 'Vocação'));
-    const chips = el('div', 'chips');
-    const chip = (id: string, text: string, color?: string) => {
-      const c = el('button', 'chip', text);
-      if (color) c.style.setProperty('--voc', color);
-      c.classList.toggle('active', vocation === id);
-      c.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        vocation = id;
-        chips.querySelectorAll('.chip').forEach((x) => x.classList.toggle('active', x === c));
-      });
-      chips.append(c);
-    };
-    chip('', 'Nenhuma');
-    for (const r of game.roles) chip(r.id, `${r.short} · ${r.name}`, r.color);
-    li.append(chips);
-  }
-
-  li.append(el('label', 'field-label', game.roles?.length ? 'Ícone (aparece quando não há vocação)' : 'Ícone'));
-  const grid = el('div', 'icon-grid');
-  const pick = (id: string) => {
-    const b = el('button', 'pick');
-    if (id) b.append(iconNode(id, 16));
-    else { b.textContent = initials(nameInput.value || p.label); b.title = 'Iniciais do nome'; }
-    b.classList.toggle('active', icon === id);
-    b.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      icon = id;
-      grid.querySelectorAll('.pick').forEach((x) => x.classList.toggle('active', x === b));
-    });
-    grid.append(b);
-  };
-  pick('');
-  for (const id of groupIcons) pick(id);
-  li.append(grid);
-
-  const warn = el('p', 'warning');
-  warn.hidden = true;
-  const row = el('div', 'row');
-  const save = el('button', 'primary grow', 'Salvar');
-  const cancel = el('button', 'ghost', 'Cancelar');
-  save.addEventListener('click', async () => {
-    const res = await window.api.updateProfile(p.id, { label: nameInput.value, vocation, icon });
-    if (res.error) { warn.textContent = res.error; warn.hidden = false; return; }
-    editingId = undefined;
-    await renderProfiles();
-  });
-  cancel.addEventListener('click', async () => { editingId = undefined; await renderProfiles(); });
-  nameInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') save.click(); if (ev.key === 'Escape') cancel.click(); });
-  row.append(save, cancel);
-  li.append(warn, row);
-  setTimeout(() => nameInput.focus(), 0);
-  return li;
 }
 
 // Cabeçalhos das telas: desenhados aqui, na posição que o processo principal calculou.
@@ -861,6 +859,8 @@ async function init(): Promise<void> {
     warn.textContent = res.warning ?? res.error ?? '';
     if (res.profile) { label.value = ''; site.value = ''; showAddForm(false); }
     await renderProfiles();
+    // Jogo novo na barra: já abre o editor para escolher o nome e o ícone da aba.
+    if (res.profile && activeGroup?.count === 1) openEditor('');
   });
 
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) =>
@@ -870,13 +870,7 @@ async function init(): Promise<void> {
   $('expand').addEventListener('click', () => void setCollapsed(false));
   $('new-page').addEventListener('click', () => { void setCollapsed(false); showAddForm(true, true); });
   $('cancel-add').addEventListener('click', () => showAddForm(false));
-  $('group-title').addEventListener('click', () => $('group-icon').click());
-  $('group-title').title = 'Clique para editar o nome e o ícone desta página';
-  $('group-icon').addEventListener('click', () => {
-    const picker = $('icon-picker');
-    if (picker.hidden) renderGroupEditor();
-    picker.hidden = !picker.hidden;
-  });
+  $('edit-btn').addEventListener('click', () => ($('editor').hidden ? openEditor(selectedId ?? '') : closeEditor()));
   initSettings();
   document.addEventListener('keydown', (ev) => {
     if (ev.ctrlKey && ev.key.toLowerCase() === 'b') {
