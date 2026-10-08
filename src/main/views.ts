@@ -80,6 +80,11 @@ export class ElectronHost implements BrowserHost {
     private readonly sessionDir?: string,
   ) {
     win.on('resize', () => this.layout());
+    // No Windows, maximizar, restaurar ou esconder telas às vezes deixava a interface do app
+    // (barra lateral e de cima) preta enquanto o jogo seguia desenhado: pede um quadro novo dela.
+    for (const ev of ['maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen', 'show'] as const) {
+      win.on(ev as 'show', () => this.repaintSoon());
+    }
   }
 
   async open(profile: Profile, game: GameModule, feeds: PageFeeds): Promise<void> {
@@ -226,8 +231,24 @@ export class ElectronHost implements BrowserHost {
     return { cpu: cpu / cores, ramMb: kb / 1024, perProfile };
   }
 
+  /** Reenvia a grade para a interface (depois de ela recarregar). */
+  refresh(): void {
+    this.layout();
+  }
+
+  private repaintTimer: NodeJS.Timeout | undefined;
+
+  /** Redesenha logo e de novo um pouco depois (o Windows às vezes só aceita o segundo quadro). */
+  private repaintSoon(): void {
+    clearTimeout(this.repaintTimer);
+    setTimeout(() => this.repaint(), 60);
+    this.repaintTimer = setTimeout(() => this.repaint(), 400);
+  }
+
   /** Depois de a placa de vídeo reiniciar, as telas podem ficar pretas: redesenha todas. */
   repaint(): void {
+    const ui = (this.win as BaseWindow & { webContents?: WebContents }).webContents;
+    if (ui && !ui.isDestroyed()) ui.invalidate();
     for (const entry of this.entries.values()) if (!entry.view.webContents.isDestroyed()) entry.view.webContents.invalidate();
   }
 
@@ -362,6 +383,7 @@ export class ElectronHost implements BrowserHost {
       this.applyPower(id, entry, shown.has(id));
     }
     this.emitTiles(cells);
+    this.repaintSoon();
   }
 
   /**

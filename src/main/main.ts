@@ -62,6 +62,17 @@ app.whenReady().then(() => {
   // para não precisar entrar de novo nos jogos se o app for fechado à força.
   const saver = setInterval(() => void host.persist(), 60_000);
   win.on('session-end', () => void host.persist());
+  // Interface do app caiu (falta de memória, placa de vídeo): recarrega em vez de ficar preta.
+  win.webContents.on('render-process-gone', (_e, details) => {
+    if (details.reason !== 'clean-exit') setTimeout(() => !win.isDestroyed() && win.webContents.reload(), 1000);
+  });
+  let frozen: NodeJS.Timeout | undefined;
+  win.webContents.on('unresponsive', () => {
+    frozen = setTimeout(() => !win.isDestroyed() && win.webContents.reload(), 5000);
+  });
+  win.webContents.on('responsive', () => clearTimeout(frozen));
+  // Depois de recarregar, a interface precisa das posições das telas de novo.
+  win.webContents.on('did-finish-load', () => host.refresh());
   let saved = false;
   win.on('close', (ev) => {
     if (saved) return;
@@ -81,6 +92,8 @@ app.whenReady().then(() => {
     if (details.type !== 'GPU' || details.reason === 'clean-exit') return;
     gpuCrashes++;
     setTimeout(() => host.repaint(), 1500);
+    // A interface do app não guarda nada importante (tudo fica no processo principal): recarregar é seguro.
+    setTimeout(() => !win.isDestroyed() && win.webContents.reload(), 2000);
     if (gpuCrashes === 3) {
       const file = join(app.getPath('userData'), 'settings.json');
       try {
