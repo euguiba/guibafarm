@@ -1,11 +1,12 @@
 # Gera o instalador do Windows e publica como release no GitHub.
 # O app instalado procura essas releases e se atualiza sozinho.
-# Para lançar uma versão: aumentar "version" no package.json, criar a tag v<versão> e enviar.
+# Para lançar uma versão: aumentar "version" no package.json e enviar para a main.
 name: Lançar versão
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: [package.json]
   workflow_dispatch:
 
 permissions:
