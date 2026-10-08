@@ -13,6 +13,8 @@ app.whenReady().then(() => {
     width: 1440,
     height: 900,
     title: 'Navegador Idle',
+    backgroundColor: '#070b14',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
