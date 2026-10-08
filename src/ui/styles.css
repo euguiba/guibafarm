@@ -153,33 +153,59 @@ form button[type=submit]:hover { box-shadow: 0 0 20px rgba(177, 76, 255, 0.55); 
 
 ul { list-style: none; margin: 0; padding: 0; }
 
-/* Contas */
-#profile-list li {
-  position: relative;
+/* Contas, agrupadas por jogo */
+.chip-mini {
+  font: 700 10px/1 var(--display);
+  letter-spacing: 0.06em;
+  color: var(--cyan);
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  padding: 3px 6px;
+  background: rgba(0, 229, 255, 0.06);
+}
+.group {
   border: 1px solid var(--line);
-  background: rgba(3, 7, 15, 0.5);
-  border-radius: 4px;
-  padding: 8px 10px 8px 14px;
-  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(3, 7, 15, 0.45);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
   cursor: pointer;
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.1), transparent);
+  border-bottom: 1px solid var(--line);
+}
+.group-name { flex: 1; font: 700 12px/1.2 var(--display); letter-spacing: 0.05em; color: var(--cyan); }
+.caret { color: var(--muted); }
+.group.collapsed .profile-list { display: none; }
+.group.collapsed .group-head { border-bottom: none; }
+.profile-list { padding: 6px; }
+.profile-list li {
+  position: relative;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 7px 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  background: rgba(16, 26, 47, 0.6);
   transition: border-color 0.15s, box-shadow 0.15s;
 }
-#profile-list li::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 6px; bottom: 6px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--muted);
-  opacity: 0.4;
-}
-#profile-list li:hover { border-color: var(--line-strong); }
-#profile-list li.selected { border-color: var(--cyan); box-shadow: inset 0 0 18px rgba(0, 229, 255, 0.1), var(--glow); }
-#profile-list li.selected::before { background: var(--cyan); opacity: 1; box-shadow: var(--glow); }
-#profile-list .name { font: 700 13px/1.3 var(--display); letter-spacing: 0.04em; }
-#profile-list .actions { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
-#profile-list .actions button { padding: 3px 8px; font-size: 10.5px; }
-.badge { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.profile-list li:last-child { margin-bottom: 0; }
+.profile-list li:hover { border-color: var(--line-strong); }
+.profile-list li.selected { border-color: var(--cyan); box-shadow: inset 0 0 16px rgba(0, 229, 255, 0.1), var(--glow); }
+.item-top { display: flex; align-items: center; gap: 8px; }
+.item-top .name { flex: 1; font: 700 12.5px/1.3 var(--display); letter-spacing: 0.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #3a4560; flex: none; display: inline-block; }
+li.open .dot, .tile-head .dot, .iso .dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.badge { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.badge.rec-on { color: var(--danger); }
+.profile-list .actions { display: none; gap: 4px; margin-top: 7px; flex-wrap: wrap; }
+.profile-list li.selected .actions, .profile-list li:hover .actions { display: flex; }
+.profile-list .actions button { padding: 3px 8px; font-size: 10.5px; }
 
 /* Recomendações e alertas */
 .rec {
@@ -240,20 +266,102 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: var
   border-left: 2px solid var(--line-strong);
 }
 
-/* Área vazia à direita */
-#empty {
+/* Área das telas */
+#workspace { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#topbar {
+  height: 104px;
+  flex: none;
+  padding: 8px 10px 0;
+  background: linear-gradient(180deg, #0d1528, var(--panel));
+  border-bottom: 1px solid var(--line-strong);
+  box-shadow: 0 1px 18px rgba(0, 229, 255, 0.1);
+}
+.toolbar { display: flex; align-items: center; gap: 8px; height: 44px; }
+.toolbar .segmented button { padding: 6px 12px; font-size: 11.5px; }
+.meter {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 82px;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgba(3, 7, 15, 0.55);
+}
+.meter span { font: 700 9px/1 var(--display); letter-spacing: 0.14em; color: var(--muted); }
+.meter b { font: 700 14px/1.3 var(--body); color: var(--cyan); font-variant-numeric: tabular-nums; }
+.spacer { flex: 1; }
+.toggle b { color: var(--muted); margin-left: 4px; }
+.toggle.on { border-color: var(--warn); color: var(--warn); background: rgba(255, 176, 32, 0.12); box-shadow: 0 0 14px rgba(255, 176, 32, 0.35); }
+.toggle.on b { color: var(--warn); }
+.urlbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  flex-wrap: nowrap;
+}
+.urlbar .globe { color: var(--cyan); font-size: 16px; text-shadow: var(--glow); }
+.urlbar input:not([type=checkbox]) { flex: 1; font: 600 13px/1 'Consolas', 'Cascadia Mono', monospace; color: #9fe9ff; }
+.urlbar button[type=submit] { padding: 6px 18px; }
+.iso { display: flex; align-items: center; gap: 6px; font-weight: 700; color: var(--green); white-space: nowrap; font-size: 13px; }
+
+#stage {
   flex: 1;
+  position: relative;
   display: grid;
   place-items: center;
+  background:
+    radial-gradient(ellipse at 50% 45%, rgba(177, 76, 255, 0.12), transparent 55%),
+    radial-gradient(ellipse at 50% 60%, rgba(0, 229, 255, 0.08), transparent 60%),
+    linear-gradient(rgba(0, 229, 255, 0.045) 1px, transparent 1px) 0 0 / 40px 40px,
+    linear-gradient(90deg, rgba(0, 229, 255, 0.045) 1px, transparent 1px) 0 0 / 40px 40px,
+    var(--bg);
+}
+#empty {
   font: 700 14px/1.4 var(--display);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--muted);
-  background:
-    radial-gradient(ellipse at 50% 45%, rgba(177, 76, 255, 0.14), transparent 55%),
-    radial-gradient(ellipse at 50% 60%, rgba(0, 229, 255, 0.1), transparent 60%),
-    linear-gradient(rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 40px 40px,
-    linear-gradient(90deg, rgba(0, 229, 255, 0.05) 1px, transparent 1px) 0 0 / 40px 40px,
-    var(--bg);
   text-shadow: 0 0 12px rgba(0, 229, 255, 0.4);
 }
+
+/* Moldura e cabeçalho de cada tela (a página do jogo fica logo abaixo do cabeçalho) */
+#tile-layer { position: fixed; inset: 0; pointer-events: none; }
+.tile-frame {
+  position: fixed;
+  pointer-events: auto;
+  border-radius: 6px 6px 0 0;
+  outline: 1px solid var(--line-strong);
+  background: var(--panel);
+}
+.tile-frame.focused { outline-color: var(--cyan); box-shadow: 0 0 18px rgba(0, 229, 255, 0.35); }
+.tile-frame.empty {
+  display: grid;
+  place-items: center;
+  outline: 1px dashed var(--line-strong);
+  background: rgba(3, 7, 15, 0.35);
+  border-radius: 6px;
+}
+.tile-empty { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; }
+.tile-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 10px;
+  background: linear-gradient(90deg, rgba(0, 229, 255, 0.1), rgba(177, 76, 255, 0.06));
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tile-name { font: 700 12px/1 var(--display); letter-spacing: 0.04em; }
+.tile-frame.focused .tile-name { color: var(--cyan); text-shadow: var(--glow); }
+.tile-game { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--violet); border: 1px solid rgba(177, 76, 255, 0.45); border-radius: 3px; padding: 1px 5px; }
+.tile-url { flex: 1; font: 12px/1 'Consolas', 'Cascadia Mono', monospace; color: #6fb7d6; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.tile-metric { font-size: 11.5px; font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 3px; background: rgba(57, 255, 159, 0.08); }
+.tile-metric:empty { display: none; }
+.tile-head .icon { padding: 1px 6px; font-size: 12px; letter-spacing: 0; text-transform: none; border-color: transparent; background: transparent; }
+.tile-head .icon:hover { border-color: var(--cyan); }

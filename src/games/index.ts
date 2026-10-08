@@ -64,7 +64,19 @@ const rollerCoin = readOnlyModule({
   },
 });
 
-export const GAMES: GameModule[] = [huntera, pokeIdleWorld, levelingIdle, rollerCoin];
+// Qualquer outro site digitado pela pessoa: só a sessão isolada, nada é lido.
+const otherSite: GameModule = {
+  manifest: {
+    id: 'site',
+    name: 'Outro site',
+    startUrl: 'about:blank',
+    hosts: [],
+    policy: { read: false, recommend: false, automate: false, note: 'Site avulso: só a sessão isolada, sem leitura nem análise.' },
+  },
+  reader: { onEvent: () => undefined },
+};
+
+export const GAMES: GameModule[] = [huntera, pokeIdleWorld, levelingIdle, rollerCoin, otherSite];
 
 export function findGame(id: string): GameModule | undefined {
   return GAMES.find((g) => g.manifest.id === id);

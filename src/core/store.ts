@@ -13,7 +13,16 @@ export interface Profile {
   /** Partição persistente do Electron: cookies e storage isolados por conta. */
   partition: string;
   createdAt: number;
+  /** Endereço inicial próprio, usado pelas contas de "Outro site". */
+  url?: string;
 }
+
+export interface Settings {
+  layout: string;
+  turbo: boolean;
+}
+
+const DEFAULT_SETTINGS: Settings = { layout: '1x1', turbo: false };
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil
 const MAX_RECORDED_BODY = 200_000;
@@ -30,6 +39,7 @@ function readJson<T>(path: string, fallback: T): T {
 export class Store {
   private profiles: Profile[];
   private prices: PriceBook;
+  private settings: Settings;
   private history = new Map<string, GameState[]>();
 
   constructor(private readonly dir: string) {
@@ -37,6 +47,7 @@ export class Store {
     mkdirSync(join(dir, 'recordings'), { recursive: true });
     this.profiles = readJson<Profile[]>(join(dir, 'profiles.json'), []);
     this.prices = readJson<PriceBook>(join(dir, 'prices.json'), { currencyBrlPer1k: {}, itemBrl: {} });
+    this.settings = { ...DEFAULT_SETTINGS, ...readJson<Partial<Settings>>(join(dir, 'settings.json'), {}) };
   }
 
   listProfiles(): Profile[] {
@@ -47,9 +58,10 @@ export class Store {
     return this.profiles.find((p) => p.id === id);
   }
 
-  addProfile(gameId: string, label: string): Profile {
+  addProfile(gameId: string, label: string, url?: string): Profile {
     const id = randomUUID().slice(0, 8);
     const profile: Profile = { id, gameId, label, partition: `persist:${gameId}-${id}`, createdAt: Date.now() };
+    if (url) profile.url = url;
     this.profiles.push(profile);
     this.saveProfiles();
     return profile;
@@ -63,6 +75,16 @@ export class Store {
 
   countProfiles(gameId: string): number {
     return this.profiles.filter((p) => p.gameId === gameId).length;
+  }
+
+  getSettings(): Settings {
+    return { ...this.settings };
+  }
+
+  setSettings(patch: Partial<Settings>): Settings {
+    this.settings = { ...this.settings, ...patch };
+    writeFileSync(join(this.dir, 'settings.json'), JSON.stringify(this.settings, null, 2));
+    return this.getSettings();
   }
 
   getPrices(): PriceBook {

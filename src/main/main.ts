@@ -12,6 +12,8 @@ app.whenReady().then(() => {
   const win = new BrowserWindow({
     width: 1440,
     height: 900,
+    minWidth: 1000,
+    minHeight: 640,
     title: 'Navegador Idle',
     backgroundColor: '#070b14',
     autoHideMenuBar: true,
@@ -21,8 +23,11 @@ app.whenReady().then(() => {
       sandbox: true,
     },
   });
-  const core = new AppCore(app.getPath('userData'), new ElectronHost(win), (channel, payload) => {
+  const send = (channel: string, payload: unknown) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+  const core = new AppCore(app.getPath('userData'), new ElectronHost(win, send), (channel, payload) => {
+    send(channel, payload);
     if (channel === 'alert' && Notification.isSupported()) {
       const { title, body } = payload as { title: string; body: string };
       new Notification({ title, body }).show();

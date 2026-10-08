@@ -7,9 +7,10 @@ import type { CapturedEvent, GameModule, GameState, PageSnapshot, PriceBook, Rec
 import { ActionRunner, type PageControl } from './actions';
 import { detectAlerts, type Alert } from './alerts';
 import { Assistant } from './assistant';
-import { Store, type Profile } from './store';
+import { Store, type Profile, type Settings } from './store';
+import { isLayoutMode, toAddress, type LayoutMode } from './tiles';
 
-export type LayoutMode = 'single' | 'grid';
+export type { LayoutMode } from './tiles';
 export type UiChannel = 'state' | 'recommendations' | 'log' | 'alert';
 
 export interface PageFeeds {
@@ -25,8 +26,26 @@ export interface BrowserHost {
   close(profileId: string): Promise<void>;
   openIds(): string[];
   setLayout(mode: LayoutMode): void;
+  /** Põe a conta em foco: é a que aparece no 1x1 e a que o turbo não desacelera. */
+  select(profileId: string): void;
+  navigate(profileId: string, url: string): void;
+  /** Recarrega uma conta, ou todas quando nenhuma é indicada. */
+  reload(profileId?: string): void;
+  setMuted(profileId: string, muted: boolean): void;
+  setTurbo(on: boolean): void;
+  metrics(): ViewMetrics;
   page(profileId: string): PageControl | undefined;
 }
+
+/** CPU em % da máquina e memória em MB, no total do app e por conta aberta. */
+export interface ViewMetrics {
+  cpu: number;
+  ramMb: number;
+  perProfile: Record<string, { cpu: number; ramMb: number }>;
+}
+
+/** Módulo "Outro site": conta isolada em qualquer endereço, sem leitura nem análise. */
+export const SITE_GAME_ID = 'site';
 
 const ANALYZE_EVERY_MS = 15_000;
 const LEVEL_BAND = 10; // "perto do meu nível" no comparador de caçadas
@@ -51,6 +70,9 @@ export class AppCore {
   }
 
   start(): void {
+    const settings = this.store.getSettings();
+    if (isLayoutMode(settings.layout)) this.host.setLayout(settings.layout);
+    this.host.setTurbo(settings.turbo);
     this.timer = setInterval(() => {
       for (const id of this.host.openIds()) {
         const profile = this.store.getProfile(id);
@@ -110,14 +132,20 @@ export class AppCore {
         .listProfiles()
         .map((p) => ({ ...p, open: this.host.openIds().includes(p.id), recording: this.recording.has(p.id) })),
 
-    'profiles:add': (gameId: string, label: string) => {
+    'profiles:add': (gameId: string, label: string, address?: string) => {
       const game = findGame(gameId);
       if (!game) return { error: 'Jogo desconhecido.' };
+      let url: string | undefined;
+      if (gameId === SITE_GAME_ID) {
+        url = toAddress(String(address ?? ''));
+        if (!url) return { error: 'Digite o endereço do site.' };
+      }
       const max = game.manifest.maxAccounts;
       if (max !== undefined && this.store.countProfiles(gameId) >= max) {
         return { error: `As regras do ${game.manifest.name} permitem até ${max} contas.` };
       }
-      return { profile: this.store.addProfile(gameId, String(label ?? '').trim() || game.manifest.name) };
+      const fallback = url ? new URL(url).hostname.replace(/^www\./, '') : game.manifest.name;
+      return { profile: this.store.addProfile(gameId, String(label ?? '').trim() || fallback, url) };
     },
 
     'profiles:remove': async (id: string) => {
@@ -137,7 +165,30 @@ export class AppCore {
 
     'profiles:close': (id: string) => this.host.close(id),
 
-    'layout:set': (mode: LayoutMode) => this.host.setLayout(mode),
+    'layout:set': (mode: LayoutMode) => {
+      if (!isLayoutMode(mode)) return;
+      this.store.setSettings({ layout: mode });
+      this.host.setLayout(mode);
+    },
+
+    'settings:get': (): Settings => this.store.getSettings(),
+
+    'turbo:set': (on: boolean) => {
+      this.store.setSettings({ turbo: !!on });
+      this.host.setTurbo(!!on);
+    },
+
+    'view:select': (id: string) => this.host.select(id),
+    'view:reload': (id?: string) => this.host.reload(id),
+    'view:mute': (id: string, muted: boolean) => this.host.setMuted(id, !!muted),
+    'metrics:get': () => this.host.metrics(),
+
+    'nav:go': (id: string, input: string) => {
+      const url = toAddress(String(input ?? ''));
+      if (!url || !this.host.openIds().includes(id)) return false;
+      this.host.navigate(id, url);
+      return true;
+    },
 
     'record:set': (id: string, on: boolean) => {
       if (on) this.recording.add(id);

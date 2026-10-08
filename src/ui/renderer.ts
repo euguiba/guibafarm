@@ -79,15 +79,50 @@ interface UiPrices {
   itemBrl: Record<string, number>;
 }
 
+interface UiTile {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  head: number;
+  profileId?: string;
+  label?: string;
+  game?: string;
+  url?: string;
+  muted?: boolean;
+  focused?: boolean;
+}
+
+interface UiTiles {
+  mode: string;
+  turbo: boolean;
+  selected?: string;
+  open: number;
+  tiles: UiTile[];
+}
+
+interface UiMetrics {
+  cpu: number;
+  ramMb: number;
+  perProfile: Record<string, { cpu: number; ramMb: number }>;
+}
+
 interface Window {
   api: {
     listGames(): Promise<UiGame[]>;
     listProfiles(): Promise<UiProfile[]>;
-    addProfile(gameId: string, label: string): Promise<{ profile?: UiProfile; warning?: string; error?: string }>;
+    addProfile(gameId: string, label: string, address?: string): Promise<{ profile?: UiProfile; warning?: string; error?: string }>;
     removeProfile(id: string): Promise<void>;
     openProfile(id: string): Promise<void>;
     closeProfile(id: string): Promise<void>;
-    setLayout(mode: 'single' | 'grid'): Promise<void>;
+    setLayout(mode: string): Promise<void>;
+    getSettings(): Promise<{ layout: string; turbo: boolean }>;
+    setTurbo(on: boolean): Promise<void>;
+    selectView(id: string): Promise<void>;
+    reloadView(id?: string): Promise<void>;
+    muteView(id: string, muted: boolean): Promise<void>;
+    getMetrics(): Promise<UiMetrics>;
+    go(id: string, input: string): Promise<boolean>;
     setRecording(id: string, on: boolean): Promise<string>;
     getState(id: string): Promise<UiState | undefined>;
     listAlerts(): Promise<UiAlert[]>;
@@ -98,7 +133,7 @@ interface Window {
     setAutomation(id: string, on: boolean): Promise<boolean>;
     runAction(id: string, rec: UiRecommendation): Promise<string>;
     ask(id: string, question: string): Promise<string>;
-    on(channel: 'state' | 'recommendations' | 'log' | 'alert', listener: (payload: any) => void): void;
+    on(channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles', listener: (payload: any) => void): void;
   };
 }
 
@@ -122,40 +157,147 @@ function num(n: number | undefined): string {
   return n === undefined ? '—' : n.toLocaleString('pt-BR');
 }
 
+const collapsed = new Set<string>();
+
 async function renderProfiles(): Promise<void> {
-  const list = $<HTMLUListElement>('profile-list');
+  const root = $('profile-groups');
   const profiles = await window.api.listProfiles();
-  list.replaceChildren();
-  for (const p of profiles) {
-    const li = el('li');
-    if (p.id === selectedId) li.classList.add('selected');
-    li.append(el('div', 'name', p.label), el('div', 'badge', `${gameById(p.gameId)?.name ?? p.gameId}${p.recording ? ' · gravando' : ''}`));
-    const actions = el('div', 'actions');
-    const button = (label: string, onClick: () => Promise<void>) => {
-      const b = el('button', undefined, label);
-      b.addEventListener('click', async (ev) => {
-        ev.stopPropagation();
-        await onClick();
-        await renderProfiles();
-      });
-      actions.append(b);
-    };
-    if (p.open) button('Fechar', () => window.api.closeProfile(p.id));
-    else button('Abrir', async () => { await window.api.openProfile(p.id); await select(p.id); });
+  root.replaceChildren();
+  const open = profiles.filter((p) => p.open).length;
+  $('open-count').textContent = `${open} ${open === 1 ? 'aberta' : 'abertas'}`;
+  $('iso-count').textContent = String(open);
+  $('m-open').textContent = String(open);
+
+  for (const game of games) {
+    const mine = profiles.filter((p) => p.gameId === game.id);
+    if (mine.length === 0) continue;
+    const group = el('div', 'group');
+    if (collapsed.has(game.id)) group.classList.add('collapsed');
+    const head = el('div', 'group-head');
+    head.append(
+      el('span', 'group-name', game.name),
+      el('span', 'chip-mini', game.maxAccounts ? `${mine.length}/${game.maxAccounts}` : String(mine.length)),
+      el('span', 'caret', collapsed.has(game.id) ? '▸' : '▾'),
+    );
+    head.addEventListener('click', () => {
+      if (collapsed.has(game.id)) collapsed.delete(game.id);
+      else collapsed.add(game.id);
+      void renderProfiles();
+    });
+    const list = el('ul', 'profile-list');
+    for (const p of mine) list.append(profileItem(p, game));
+    group.append(head, list);
+    root.append(group);
+  }
+  if (profiles.length === 0) root.append(el('p', 'muted', 'Nenhuma conta ainda.'));
+  $('empty').hidden = open > 0;
+}
+
+function profileItem(p: UiProfile, game: UiGame): HTMLElement {
+  const li = el('li');
+  if (p.id === selectedId) li.classList.add('selected');
+  if (p.open) li.classList.add('open');
+  const top = el('div', 'item-top');
+  top.append(el('i', 'dot'), el('div', 'name', p.label), el('div', 'badge', p.open ? 'aberta' : 'fechada'));
+  if (p.recording) top.append(el('div', 'badge rec-on', 'gravando'));
+  const actions = el('div', 'actions');
+  const button = (label: string, onClick: () => Promise<void>) => {
+    const b = el('button', undefined, label);
+    b.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      await onClick();
+      await renderProfiles();
+    });
+    actions.append(b);
+  };
+  if (p.open) button('Fechar', () => window.api.closeProfile(p.id));
+  else button('Abrir', async () => { await window.api.openProfile(p.id); await select(p.id); });
+  if (game.policy.read) {
     button(p.recording ? 'Parar gravação' : 'Gravar tráfego', async () => {
       const dir = await window.api.setRecording(p.id, !p.recording);
       if (!p.recording) alert(`Gravando o tráfego desta conta em:\n${dir}`);
     });
-    button('Remover', async () => {
-      if (!confirm(`Remover a conta "${p.label}"? O login salvo nesta partição deixa de ser usado.`)) return;
-      await window.api.removeProfile(p.id);
-      if (selectedId === p.id) { selectedId = undefined; $('detail').hidden = true; }
-    });
-    li.append(actions);
-    li.addEventListener('click', () => void select(p.id));
-    list.append(li);
   }
-  $('empty').textContent = profiles.some((p) => p.open) ? '' : 'Adicione uma conta e clique em Abrir.';
+  button('Remover', async () => {
+    if (!confirm(`Remover a conta "${p.label}"? O login salvo nesta partição deixa de ser usado.`)) return;
+    await window.api.removeProfile(p.id);
+    if (selectedId === p.id) { selectedId = undefined; $('detail').hidden = true; }
+  });
+  li.append(top, actions);
+  li.addEventListener('click', () => void select(p.id));
+  return li;
+}
+
+// Cabeçalhos das telas: desenhados aqui, na posição que o processo principal calculou.
+let lastTiles: UiTiles | undefined;
+
+function renderTiles(data: UiTiles): void {
+  lastTiles = data;
+  const layer = $('tile-layer');
+  layer.replaceChildren();
+  document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === data.mode));
+  setTurboButton(data.turbo);
+  $('empty').hidden = data.open > 0;
+  if (data.open === 0) return;
+  for (const t of data.tiles) {
+    const frame = el('div', 'tile-frame');
+    Object.assign(frame.style, { left: `${t.x}px`, top: `${t.y}px`, width: `${t.width}px`, height: `${t.height}px` });
+    if (!t.profileId) {
+      frame.classList.add('empty');
+      frame.append(el('div', 'tile-empty', 'Tela livre · abra outra conta na barra lateral'));
+      layer.append(frame);
+      continue;
+    }
+    const id = t.profileId;
+    if (t.focused) frame.classList.add('focused');
+    const head = el('div', 'tile-head');
+    head.style.height = `${t.head}px`;
+    let host = '';
+    try { host = t.url ? new URL(t.url).host : ''; } catch { host = ''; }
+    head.append(
+      el('i', 'dot'),
+      el('span', 'tile-name', t.label ?? ''),
+      el('span', 'tile-game', t.game ?? ''),
+      el('span', 'tile-url', host),
+      el('span', 'tile-metric', ''),
+    );
+    head.querySelector<HTMLElement>('.tile-metric')!.dataset.profile = id;
+    const icon = (label: string, title: string, onClick: () => Promise<unknown>) => {
+      const b = el('button', 'icon', label);
+      b.title = title;
+      b.addEventListener('click', async (ev) => { ev.stopPropagation(); await onClick(); });
+      head.append(b);
+    };
+    icon(t.muted ? '🔇' : '🔊', t.muted ? 'Ligar o som' : 'Silenciar', () => window.api.muteView(id, !t.muted));
+    icon('⟳', 'Recarregar', () => window.api.reloadView(id));
+    icon('⤢', 'Ver só esta tela', async () => { await window.api.setLayout('1x1'); await select(id); });
+    icon('✕', 'Fechar a conta', async () => { await window.api.closeProfile(id); await renderProfiles(); });
+    head.addEventListener('click', () => void select(id));
+    frame.append(head);
+    layer.append(frame);
+    if (t.focused && document.activeElement !== $('url-input')) $<HTMLInputElement>('url-input').value = t.url ?? '';
+  }
+  void pollMetrics();
+}
+
+function setTurboButton(on: boolean): void {
+  const b = $('turbo');
+  b.classList.toggle('on', on);
+  b.querySelector('b')!.textContent = on ? 'ON' : 'OFF';
+}
+
+async function pollMetrics(): Promise<void> {
+  try {
+    const m = await window.api.getMetrics();
+    $('m-cpu').textContent = `${m.cpu.toFixed(1)}%`;
+    $('m-ram').textContent = `${Math.round(m.ramMb)} MB`;
+    document.querySelectorAll<HTMLElement>('.tile-metric').forEach((span) => {
+      const v = m.perProfile[span.dataset.profile ?? ''];
+      span.textContent = v ? `${v.cpu.toFixed(1)}% · ${Math.round(v.ramMb)} MB` : '';
+    });
+  } catch {
+    // janela fechando
+  }
 }
 
 // Nome legível dos recursos; os que não estão aqui ficam de fora do painel.
@@ -333,6 +475,7 @@ async function select(id: string): Promise<void> {
   $('automation-box').hidden = auto.disabled;
   $('policy-note').textContent = game?.policy.note ?? '';
   $('chat').replaceChildren();
+  if (p.open) await window.api.selectView(id);
   await renderProfiles();
 }
 
@@ -346,24 +489,43 @@ async function init(): Promise<void> {
     sel.append(opt);
   }
 
+  const site = $<HTMLInputElement>('site-input');
+  const syncSite = () => { site.hidden = sel.value !== 'site'; };
+  sel.addEventListener('change', syncSite);
+  syncSite();
+
   $('add-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const label = $<HTMLInputElement>('label-input');
-    const res = await window.api.addProfile(sel.value, label.value);
+    const res = await window.api.addProfile(sel.value, label.value, site.value);
     const warn = $('add-warning');
     warn.hidden = !(res.warning || res.error);
     warn.textContent = res.warning ?? res.error ?? '';
-    label.value = '';
+    if (res.profile) { label.value = ''; site.value = ''; }
     await renderProfiles();
   });
 
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) =>
-    b.addEventListener('click', async () => {
-      document.querySelectorAll('[data-layout]').forEach((x) => x.classList.remove('active'));
-      b.classList.add('active');
-      await window.api.setLayout(b.dataset.layout as 'single' | 'grid');
-    }),
+    b.addEventListener('click', () => void window.api.setLayout(b.dataset.layout!)),
   );
+  $('turbo').addEventListener('click', () => void window.api.setTurbo(!$('turbo').classList.contains('on')));
+  $('reload-all').addEventListener('click', () => void window.api.reloadView());
+  $('url-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const target = lastTiles?.selected;
+    const input = $<HTMLInputElement>('url-input');
+    input.blur();
+    if (!target || !(await window.api.go(target, input.value))) {
+      input.value = '';
+      input.placeholder = 'Abra uma conta primeiro; o endereço abre na conta em foco';
+    }
+  });
+  window.api.on('tiles', (data: UiTiles) => renderTiles(data));
+  const settings = await window.api.getSettings();
+  document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === settings.layout));
+  setTurboButton(settings.turbo);
+  setInterval(() => void pollMetrics(), 2000);
+  void pollMetrics();
 
   const prices = await window.api.getPrices();
   const gold = $<HTMLInputElement>('gold-price');

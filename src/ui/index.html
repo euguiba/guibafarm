@@ -12,6 +12,7 @@
       <h1>Navegador Idle</h1>
       <form id="add-form">
         <select id="game-select"></select>
+        <input id="site-input" placeholder="Endereço do site, ex.: jogo.com.br" hidden />
         <input id="label-input" placeholder="Apelido da conta" />
         <button type="submit">Adicionar conta</button>
       </form>
@@ -21,12 +22,9 @@
     <section>
       <div class="row">
         <h2>Contas</h2>
-        <div class="segmented">
-          <button data-layout="single" class="active">Uma</button>
-          <button data-layout="grid">Grade</button>
-        </div>
+        <span id="open-count" class="chip-mini">0 abertas</span>
       </div>
-      <ul id="profile-list"></ul>
+      <div id="profile-groups"></div>
     </section>
 
     <section>
@@ -75,7 +73,32 @@
       </form>
     </section>
   </aside>
-  <main id="empty">Adicione uma conta e clique em Abrir.</main>
+  <div id="workspace">
+    <header id="topbar">
+      <div class="toolbar">
+        <div class="segmented" id="layouts">
+          <button data-layout="1x1" title="Uma tela">▢ 1x1</button>
+          <button data-layout="split" title="Duas telas lado a lado">◫ Split</button>
+          <button data-layout="2x2" title="Quatro telas">⊞ 2x2</button>
+          <button data-layout="3x3" title="Nove telas">⊞ 3x3</button>
+        </div>
+        <div class="meter"><span>CPU</span><b id="m-cpu">—</b></div>
+        <div class="meter"><span>RAM</span><b id="m-ram">—</b></div>
+        <div class="meter"><span>Telas</span><b id="m-open">0</b></div>
+        <span class="spacer"></span>
+        <button id="turbo" class="toggle" title="Desacelera as telas fora de foco para sobrar desempenho para a que você está usando">⚡ Turbo <b>OFF</b></button>
+        <button id="reload-all" title="Recarregar todas as contas abertas">⟳ Recarregar</button>
+      </div>
+      <form class="urlbar" id="url-form">
+        <span class="globe">◎</span>
+        <input id="url-input" placeholder="Digite um endereço ou pesquise; abre na conta em foco" spellcheck="false" />
+        <button type="submit">Ir</button>
+        <span class="iso"><i class="dot"></i><span id="iso-count">0</span> isoladas</span>
+      </form>
+    </header>
+    <main id="stage"><div id="empty">Adicione uma conta e clique em Abrir.</div></main>
+  </div>
+  <div id="tile-layer"></div>
   <script src="renderer.js"></script>
 </body>
 </html>

@@ -13,6 +13,13 @@ contextBridge.exposeInMainWorld('api', {
   openProfile: invoke('profiles:open'),
   closeProfile: invoke('profiles:close'),
   setLayout: invoke('layout:set'),
+  getSettings: invoke('settings:get'),
+  setTurbo: invoke('turbo:set'),
+  selectView: invoke('view:select'),
+  reloadView: invoke('view:reload'),
+  muteView: invoke('view:mute'),
+  getMetrics: invoke('metrics:get'),
+  go: invoke('nav:go'),
   setRecording: invoke('record:set'),
   getState: invoke('state:get'),
   listAlerts: invoke('alerts:list'),
@@ -23,7 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   setAutomation: invoke('automation:set'),
   runAction: invoke('action:run'),
   ask: invoke('assistant:ask'),
-  on: (channel: 'state' | 'recommendations' | 'log' | 'alert', listener: (payload: unknown) => void) => {
+  on: (channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles', listener: (payload: unknown) => void) => {
     ipcRenderer.on(channel, (_e, payload) => listener(payload));
   },
 });
