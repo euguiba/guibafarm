@@ -29,6 +29,8 @@ export interface BrowserHost {
 }
 
 const ANALYZE_EVERY_MS = 15_000;
+const LEVEL_BAND = 10; // "perto do meu nível" no comparador de caçadas
+const RECENT_SESSIONS = 15;
 
 export class AppCore {
   readonly store: Store;
@@ -101,7 +103,7 @@ export class AppCore {
 
   /** Um handler por canal; os argumentos chegam na ordem que a barra lateral envia. */
   readonly handlers: Record<string, (...args: any[]) => unknown> = {
-    'games:list': () => GAMES.map((g) => ({ ...g.manifest, hasAnalyzer: !!g.analyzer, hasActor: !!g.actor })),
+    'games:list': () => GAMES.map((g) => ({ ...g.manifest, hasAnalyzer: !!g.analyzer, hasHunts: !!g.hunts, hasActor: !!g.actor })),
 
     'profiles:list': () =>
       this.store
@@ -150,6 +152,29 @@ export class AppCore {
     'recommendations:get': (id: string) => {
       const profile = this.store.getProfile(id);
       return profile ? this.analyze(profile) : [];
+    },
+
+    'hunts:compare': (id: string, opts: { allAccounts: boolean; nearLevel: boolean }) => {
+      const profile = this.store.getProfile(id);
+      if (!profile) return undefined;
+      const game = this.gameOf(profile);
+      if (!game.hunts) return undefined;
+      const prices = this.store.getPrices();
+      const accounts = opts.allAccounts
+        ? this.store.listProfiles().filter((p) => p.gameId === profile.gameId)
+        : [profile];
+      const level = this.store.latestState(id)?.character.level;
+      let sessions = accounts.flatMap((p) => game.hunts!.sessions(this.store.getHistory(p.id), prices));
+      if (opts.nearLevel && level !== undefined) {
+        sessions = sessions.filter((s) => s.level !== undefined && Math.abs(s.level - level) <= LEVEL_BAND);
+      }
+      return {
+        level,
+        levelBand: LEVEL_BAND,
+        labels: Object.fromEntries(accounts.map((p) => [p.id, p.label])),
+        summaries: game.hunts.summarize(sessions, prices),
+        recent: sessions.sort((a, b) => b.end - a.end).slice(0, RECENT_SESSIONS),
+      };
     },
 
     'prices:get': () => this.store.getPrices(),

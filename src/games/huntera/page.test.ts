@@ -45,7 +45,7 @@ test('estado acumula o log entre leituras e não repete quando nada muda', () =>
 test('analisador usa a XP do log quando a rede não informa XP', () => {
   const MIN = 60_000;
   const mk = (min: number, xp: number) => ({ gameId: 'huntera', profileId: 'p1', at: min * MIN, character: {}, resources: { xp_log: xp }, location: 'Cyclops' });
-  const recs = hunteraAnalyzer.analyze([mk(0, 0), mk(30, 50_000)], { currencyBrlPer1k: {}, itemBrl: {} }, 30 * MIN);
+  const recs = hunteraAnalyzer.analyze([mk(0, 0), mk(10, 15_000), mk(20, 35_000), mk(30, 50_000)], { currencyBrlPer1k: {}, itemBrl: {} }, 30 * MIN);
   assert.equal(recs.find((r) => r.id === 'best-xp')?.score, 100_000);
 });
 

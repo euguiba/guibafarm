@@ -103,6 +103,41 @@ export interface Actor {
   perform(action: ActionRequest, ctx: ActorContext): Promise<void>;
 }
 
+/** Um trecho contínuo de caça num mesmo local, de uma conta. */
+export interface HuntSession {
+  profileId: string;
+  location: string;
+  start: number; // epoch ms
+  end: number;
+  level?: number;
+  vocation?: string;
+  experience: number;
+  gold: number;
+  xpPerHour: number;
+  goldPerHour: number;
+  brlPerHour?: number;
+}
+
+/** Sessões de um local somadas, de uma ou mais contas. */
+export interface HuntSummary {
+  location: string;
+  profileIds: string[];
+  sessions: number;
+  minLevel?: number;
+  maxLevel?: number;
+  durationMs: number;
+  experience: number;
+  gold: number;
+  xpPerHour: number;
+  goldPerHour: number;
+  brlPerHour?: number;
+}
+
+export interface HuntComparer {
+  sessions(history: GameState[], prices: PriceBook): HuntSession[];
+  summarize(sessions: HuntSession[], prices: PriceBook): HuntSummary[];
+}
+
 export interface MarketFeed {
   quotes(): Promise<PriceQuote[]>;
 }
@@ -132,6 +167,8 @@ export interface GameModule {
   reader: StateReader;
   pageReader?: PageReader;
   analyzer?: Analyzer;
+  /** Compara caçadas entre sessões e contas do mesmo jogo. */
+  hunts?: HuntComparer;
   actor?: Actor;
   market?: MarketFeed;
 }

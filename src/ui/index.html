@@ -41,6 +41,23 @@
       <h3>Recomendações</h3>
       <ul id="recs"></ul>
 
+      <div id="hunts-section" hidden>
+        <h3>Comparar caçadas</h3>
+        <div class="filters">
+          <label class="inline"><input id="hunts-all" type="checkbox" checked /> Todas as contas</label>
+          <label class="inline"><input id="hunts-near" type="checkbox" /> <span id="hunts-near-label">Perto do meu nível</span></label>
+          <select id="hunts-sort">
+            <option value="money">Ordenar por lucro</option>
+            <option value="xp">Ordenar por XP</option>
+          </select>
+        </div>
+        <ul id="hunts"></ul>
+        <details>
+          <summary>Sessões recentes</summary>
+          <ul id="hunt-sessions"></ul>
+        </details>
+      </div>
+
       <h3>Preços</h3>
       <label class="inline">R$ por 1.000 de ouro <input id="gold-price" type="number" step="0.01" min="0" /></label>
 

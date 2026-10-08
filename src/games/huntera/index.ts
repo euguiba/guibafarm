@@ -6,7 +6,7 @@
 
 import { readEvent, type FieldAliases } from '../../sdk/json-fields';
 import type { GameModule } from '../../sdk/types';
-import { hunteraAnalyzer } from './analyzer';
+import { hunteraAnalyzer, hunteraHunts } from './analyzer';
 import { hunteraPageReader } from './page';
 
 export const HUNTERA_FIELDS: FieldAliases = {
@@ -47,4 +47,5 @@ export const huntera: GameModule = {
   },
   pageReader: hunteraPageReader,
   analyzer: hunteraAnalyzer,
+  hunts: hunteraHunts,
 };
