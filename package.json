@@ -1,6 +1,6 @@
 {
   "name": "navegador-idle",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Navegador desktop para jogos idle: perfis isolados por conta, analisador por jogo, assistente e lucro por hora.",
   "main": "dist/main/main.js",
@@ -45,7 +45,8 @@
       "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "Navegador Idle",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "artifactName": "Navegador-Idle-Setup-${version}.${ext}"
     },
     "publish": [
       {

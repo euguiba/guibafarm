@@ -21,14 +21,20 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - name: Tag da versão
-        shell: bash
-        run: |
-          tag="v$(node -p "require('./package.json').version")"
-          if [ -z "$(git ls-remote --tags origin "$tag")" ]; then git tag "$tag" && git push origin "$tag"; fi
       - run: npm ci
       - run: npm test
-      - name: Instalador e publicação
-        run: npx electron-builder --win nsis --publish always
+      # O electron-builder só monta; a release é criada de uma vez só pelo gh, com o instalador e o
+      # latest.yml juntos (publicando pelo electron-builder saíam releases duplicadas sem o latest.yml).
+      - name: Instalador
+        run: npx electron-builder --win nsis --publish never
+      - name: Publicar release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v$(node -p "require('./package.json').version")"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/Navegador-Idle-Setup-*.exe release/*.blockmap release/latest.yml --clobber
+          else
+            gh release create "$tag" release/Navegador-Idle-Setup-*.exe release/*.blockmap release/latest.yml --title "Navegador Idle ${tag#v}" --notes "Versão ${tag#v}" --target "$GITHUB_SHA"
+          fi

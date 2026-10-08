@@ -1,14 +1,30 @@
 // Modo Electron: janela com barra lateral e uma aba isolada por conta.
 
-import { app, BrowserWindow, ipcMain, Notification } from 'electron';
+import { app, BrowserWindow, crashReporter, ipcMain, Notification } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { AppCore } from '../core/app-core';
+import { log, markClosed, markRunning, watchProcesses } from './diagnostics';
 import { startUpdater } from './updater';
 import { ElectronHost } from './views';
 
 // Mesma pasta de dados no "npm start" e no app instalado, para não perder contas e logins.
 app.setPath('userData', join(app.getPath('appData'), 'navegador-idle'));
+
+// No Windows, o Chromium às vezes acha que a janela está coberta e para de desenhar a interface
+// (tela preta com o jogo ainda aparecendo). Essa detecção fica desligada.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+
+watchProcesses();
+// Falhas graves do Chromium ficam salvas em userData/Crashpad (só no PC, nada é enviado).
+crashReporter.start({ uploadToServer: false });
+/** A abertura anterior caiu: esta abre sem reabrir as contas, para não cair de novo no mesmo ponto. */
+const lastRunCrashed = markRunning();
+log(`abrindo versão ${app.getVersion()}${lastRunCrashed ? ' (a anterior não fechou normalmente)' : ''}`);
+app.on('quit', () => {
+  log('fechado normalmente');
+  markClosed();
+});
 
 // Aceleração de hardware desligada nas configurações (PC com placa de vídeo fraca ou com problema).
 try {
@@ -55,7 +71,13 @@ app.whenReady().then(() => {
   for (const [channel, handler] of Object.entries(core.handlers)) {
     ipcMain.handle(channel, (_e, ...args) => handler(...args));
   }
-  core.start();
+  core.start({ reopen: !lastRunCrashed });
+  if (lastRunCrashed && Notification.isSupported()) {
+    new Notification({
+      title: 'Navegador Idle',
+      body: 'O app fechou sozinho da última vez. As contas não foram reabertas automaticamente; abra pela barra lateral.',
+    }).show();
+  }
   void win.loadFile(join(__dirname, '..', 'ui', 'index.html'));
 
   // Logins: grava cookies e sessões das contas a cada minuto, ao fechar e quando o Windows desliga,

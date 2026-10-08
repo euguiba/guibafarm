@@ -88,14 +88,15 @@ export class AppCore {
     this.actions = new ActionRunner((profileId, message) => emit('log', { profileId, message, at: Date.now() }));
   }
 
-  start(): void {
+  /** `reopen: false` abre sem as contas que estavam abertas (a abertura anterior caiu). */
+  start(opts: { reopen?: boolean } = {}): void {
     const settings = this.store.getSettings();
     if (isLayoutMode(settings.layout)) this.host.setLayout(settings.layout);
     this.host.setTurbo(settings.turbo);
     this.host.setSidebarCollapsed(settings.sidebarCollapsed);
     this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
     this.applyFilter();
-    void this.reopen(settings.openProfiles);
+    if (opts.reopen !== false) void this.reopen(settings.openProfiles);
     this.timer = setInterval(() => {
       for (const id of this.host.openIds()) {
         const profile = this.store.getProfile(id);
