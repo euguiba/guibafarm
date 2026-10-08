@@ -3,17 +3,25 @@
 // Cada modo fornece um BrowserHost e expõe `handlers` para a barra lateral.
 
 import { findGame, GAMES } from '../games';
-import type { CapturedEvent, GameModule, PriceBook, Recommendation } from '../sdk/types';
+import type { CapturedEvent, GameModule, GameState, PageSnapshot, PriceBook, Recommendation } from '../sdk/types';
 import { ActionRunner, type PageControl } from './actions';
+import { detectAlerts, type Alert } from './alerts';
 import { Assistant } from './assistant';
 import { Store, type Profile } from './store';
 
 export type LayoutMode = 'single' | 'grid';
-export type UiChannel = 'state' | 'recommendations' | 'log';
+export type UiChannel = 'state' | 'recommendations' | 'log' | 'alert';
+
+export interface PageFeeds {
+  /** Tráfego de rede dos hosts do jogo. */
+  onCaptured(event: CapturedEvent): void;
+  /** Texto visível da página, lido periodicamente quando o jogo tem pageReader. */
+  onSnapshot(snapshot: PageSnapshot): void;
+}
 
 export interface BrowserHost {
-  /** Abre a conta numa janela/aba isolada e chama onCaptured com o tráfego do jogo. */
-  open(profile: Profile, game: GameModule, onCaptured: (event: CapturedEvent) => void): Promise<void>;
+  /** Abre a conta numa janela/aba isolada e alimenta os leitores do jogo. */
+  open(profile: Profile, game: GameModule, feeds: PageFeeds): Promise<void>;
   close(profileId: string): Promise<void>;
   openIds(): string[];
   setLayout(mode: LayoutMode): void;
@@ -28,6 +36,7 @@ export class AppCore {
   private readonly recording = new Set<string>();
   private readonly recommendations = new Map<string, Recommendation[]>();
   private readonly actions: ActionRunner;
+  private readonly alerts: Alert[] = [];
   private timer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -62,10 +71,23 @@ export class AppCore {
 
   private onCaptured(profile: Profile, game: GameModule, event: CapturedEvent): void {
     if (this.recording.has(profile.id)) this.store.record(profile.id, event);
-    const next = game.reader.onEvent(event, this.store.latestState(profile.id), profile.id);
-    if (next) {
-      this.store.pushState(next);
-      this.emit('state', next);
+    this.accept(profile, game.reader.onEvent(event, this.store.latestState(profile.id), profile.id));
+  }
+
+  private onSnapshot(profile: Profile, game: GameModule, snapshot: PageSnapshot): void {
+    if (!game.pageReader) return;
+    this.accept(profile, game.pageReader.onSnapshot(snapshot, this.store.latestState(profile.id), profile.id));
+  }
+
+  private accept(profile: Profile, next: GameState | undefined): void {
+    if (!next) return;
+    const prev = this.store.latestState(profile.id);
+    this.store.pushState(next);
+    this.emit('state', next);
+    for (const alert of detectAlerts(prev, next, profile.label)) {
+      this.alerts.push(alert);
+      if (this.alerts.length > 100) this.alerts.shift();
+      this.emit('alert', alert);
     }
   }
 
@@ -90,11 +112,10 @@ export class AppCore {
       const game = findGame(gameId);
       if (!game) return { error: 'Jogo desconhecido.' };
       const max = game.manifest.maxAccounts;
-      const warning =
-        max !== undefined && this.store.countProfiles(gameId) >= max
-          ? `${game.manifest.name} permite até ${max} contas; esta passa do limite.`
-          : undefined;
-      return { profile: this.store.addProfile(gameId, String(label ?? '').trim() || game.manifest.name), warning };
+      if (max !== undefined && this.store.countProfiles(gameId) >= max) {
+        return { error: `As regras do ${game.manifest.name} permitem até ${max} contas.` };
+      }
+      return { profile: this.store.addProfile(gameId, String(label ?? '').trim() || game.manifest.name) };
     },
 
     'profiles:remove': async (id: string) => {
@@ -106,7 +127,10 @@ export class AppCore {
       const profile = this.store.getProfile(id);
       if (!profile) return;
       const game = this.gameOf(profile);
-      await this.host.open(profile, game, (ev) => this.onCaptured(profile, game, ev));
+      await this.host.open(profile, game, {
+        onCaptured: (ev) => this.onCaptured(profile, game, ev),
+        onSnapshot: (snap) => this.onSnapshot(profile, game, snap),
+      });
     },
 
     'profiles:close': (id: string) => this.host.close(id),
@@ -120,6 +144,8 @@ export class AppCore {
     },
 
     'state:get': (id: string) => this.store.latestState(id),
+
+    'alerts:list': () => [...this.alerts].reverse(),
 
     'recommendations:get': (id: string) => {
       const profile = this.store.getProfile(id);

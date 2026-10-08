@@ -48,6 +48,9 @@ src/
 
 - **Captura** (`core/cdp-capture.ts`): usa o protocolo de depuração do Chromium para ler respostas HTTP e frames de WebSocket dos hosts do jogo. Nada é injetado na página do jogo.
 - **Analisador do Huntera** (`games/huntera/analyzer.ts`): mede ouro e XP por hora em cada caça (mínimo de 5 minutos por trecho), recomenda a melhor caça para lucro e para XP, sugere troca quando a atual rende menos de 70% da melhor e alerta quando a XP para de subir por 10 minutos.
+- **Leitor de texto** (`main/page-watch.ts`, `games/huntera/page.ts`): a cada 5 s lê o painel (nível, stamina, capacidade, XP do nível) e as linhas novas do log de combate (XP ganha, dano, maior hit, mortes), num mundo isolado que o jogo não enxerga. Padrões baseados no MultiAccountIdle (MIT) e no HunteraPartyAnalyzer.
+- **Alertas** (`core/alerts.ts`): notificação do Windows quando a conta sobe de nível, fica com 1 h ou menos de stamina, desconecta ou morre.
+- **Limite de contas**: o navegador não cria mais contas do que as regras do jogo permitem (4 no Huntera e no Poke Idle World).
 - **Automação** (`core/actions.ts`): só liga quando a política do jogo permite e o módulo tem um `actor`. Hoje está desligada nos quatro jogos (veja abaixo).
 
 ## Política por jogo

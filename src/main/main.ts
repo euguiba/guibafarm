@@ -1,7 +1,6 @@
 // Modo Electron: janela com barra lateral e uma aba isolada por conta.
-// Se o Windows bloquear o Electron (Controle Inteligente de Aplicativos), use `npm run start:edge`.
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, Notification } from 'electron';
 import { join } from 'node:path';
 import { AppCore } from '../core/app-core';
 import { ElectronHost } from './views';
@@ -19,6 +18,10 @@ app.whenReady().then(() => {
   });
   const core = new AppCore(app.getPath('userData'), new ElectronHost(win), (channel, payload) => {
     if (!win.isDestroyed()) win.webContents.send(channel, payload);
+    if (channel === 'alert' && Notification.isSupported()) {
+      const { title, body } = payload as { title: string; body: string };
+      new Notification({ title, body }).show();
+    }
   });
   for (const [channel, handler] of Object.entries(core.handlers)) {
     ipcMain.handle(channel, (_e, ...args) => handler(...args));

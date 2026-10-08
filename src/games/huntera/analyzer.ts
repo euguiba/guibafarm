@@ -36,6 +36,11 @@ function segmentsByLocation(history: GameState[]): Segment[] {
   return segments;
 }
 
+/** XP absoluta quando a rede informa; senão, a XP somada do log de combate. */
+export function xpOf(state: GameState): number | undefined {
+  return state.character.experience ?? state.resources.xp_log;
+}
+
 function delta(first: number | undefined, last: number | undefined): number {
   return first === undefined || last === undefined ? 0 : last - first;
 }
@@ -48,7 +53,7 @@ export function huntStats(history: GameState[], prices: PriceBook): HuntStats[] 
     if (durationMs < MIN_SEGMENT_MS) continue;
     const t = totals.get(seg.location) ?? { durationMs: 0, experience: 0, gold: 0 };
     t.durationMs += durationMs;
-    t.experience += delta(seg.first.character.experience, seg.last.character.experience);
+    t.experience += delta(xpOf(seg.first), xpOf(seg.last));
     t.gold += delta(seg.first.resources.gold, seg.last.resources.gold);
     totals.set(seg.location, t);
   }
@@ -78,7 +83,7 @@ function brl(n: number): string {
 
 function lastExperienceChange(sorted: GameState[]): number | undefined {
   for (let i = sorted.length - 1; i > 0; i--) {
-    if (sorted[i].character.experience !== sorted[i - 1].character.experience) return sorted[i].at;
+    if (xpOf(sorted[i]) !== xpOf(sorted[i - 1])) return sorted[i].at;
   }
   return undefined;
 }
@@ -131,7 +136,8 @@ export const hunteraAnalyzer: Analyzer = {
 
     const first = sorted.at(0);
     const lastXp = lastExperienceChange(sorted) ?? first?.at;
-    if (first && lastXp !== undefined && now - first.at >= IDLE_ALERT_MS && now - lastXp >= IDLE_ALERT_MS) {
+    const hasXp = sorted.some((s) => xpOf(s) !== undefined);
+    if (hasXp && first && lastXp !== undefined && now - first.at >= IDLE_ALERT_MS && now - lastXp >= IDLE_ALERT_MS) {
       recs.push({
         id: 'idle-alert',
         title: 'Sem ganho de XP',

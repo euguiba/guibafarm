@@ -72,6 +72,22 @@ export interface StateReader {
   onEvent(event: CapturedEvent, previous: GameState | undefined, profileId: string): GameState | undefined;
 }
 
+/** Texto visível da página do jogo, lido sem agir nela. */
+export interface PageSnapshot {
+  at: number;
+  /** document.body.innerText, cortado. */
+  text: string;
+  /** Linhas novas do log de combate desde a leitura anterior. */
+  logLines: string[];
+}
+
+export interface PageReader {
+  /** Onde fica o log de combate e cada linha dele (seletores CSS). */
+  logContainer?: string;
+  logLine?: string;
+  onSnapshot(snapshot: PageSnapshot, previous: GameState | undefined, profileId: string): GameState | undefined;
+}
+
 export interface Analyzer {
   analyze(history: GameState[], prices: PriceBook, now: number): Recommendation[];
 }
@@ -106,6 +122,7 @@ export interface GameManifest {
   startUrl: string;
   /** Hosts que ativam o módulo e cujo tráfego é capturado. */
   hosts: string[];
+  /** Limite de contas das regras do jogo; o navegador não deixa passar disso. */
   maxAccounts?: number;
   policy: GamePolicy;
 }
@@ -113,6 +130,7 @@ export interface GameManifest {
 export interface GameModule {
   manifest: GameManifest;
   reader: StateReader;
+  pageReader?: PageReader;
   analyzer?: Analyzer;
   actor?: Actor;
   market?: MarketFeed;

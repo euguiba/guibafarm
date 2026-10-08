@@ -3,16 +3,17 @@
 
 import { shell, WebContentsView, type BaseWindow } from 'electron';
 import type { PageControl } from '../core/actions';
-import type { BrowserHost, LayoutMode } from '../core/app-core';
+import type { BrowserHost, LayoutMode, PageFeeds } from '../core/app-core';
 import type { Profile } from '../core/store';
-import type { CapturedEvent, GameModule } from '../sdk/types';
+import type { GameModule } from '../sdk/types';
 import { attachCapture } from './capture';
+import { watchPage } from './page-watch';
 
 export const SIDEBAR_WIDTH = 340;
 
 export class ElectronHost implements BrowserHost {
   private views = new Map<string, WebContentsView>();
-  private detachers = new Map<string, () => void>();
+  private detachers = new Map<string, Array<() => void>>();
   private selected: string | undefined;
   private mode: LayoutMode = 'single';
 
@@ -20,16 +21,19 @@ export class ElectronHost implements BrowserHost {
     win.on('resize', () => this.layout());
   }
 
-  async open(profile: Profile, game: GameModule, onCaptured: (event: CapturedEvent) => void): Promise<void> {
+  async open(profile: Profile, game: GameModule, feeds: PageFeeds): Promise<void> {
     if (!this.views.has(profile.id)) {
       const view = new WebContentsView({
         webPreferences: { partition: profile.partition, contextIsolation: true, sandbox: true },
       });
       this.views.set(profile.id, view);
       this.win.contentView.addChildView(view);
+      const detach: Array<() => void> = [];
       if (game.manifest.policy.read) {
-        this.detachers.set(profile.id, attachCapture(view.webContents, game.manifest.hosts, onCaptured));
+        detach.push(attachCapture(view.webContents, game.manifest.hosts, (ev) => feeds.onCaptured(ev)));
+        if (game.pageReader) detach.push(watchPage(view.webContents, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
+      this.detachers.set(profile.id, detach);
       // Links que abrem nova janela vão para o navegador padrão, fora da partição da conta.
       view.webContents.setWindowOpenHandler(({ url }) => {
         void shell.openExternal(url);
@@ -42,7 +46,7 @@ export class ElectronHost implements BrowserHost {
   }
 
   async close(profileId: string): Promise<void> {
-    this.detachers.get(profileId)?.();
+    for (const d of this.detachers.get(profileId) ?? []) d();
     this.detachers.delete(profileId);
     const view = this.views.get(profileId);
     if (!view) return;

@@ -7,6 +7,7 @@
 import { readEvent, type FieldAliases } from '../../sdk/json-fields';
 import type { GameModule } from '../../sdk/types';
 import { hunteraAnalyzer } from './analyzer';
+import { hunteraPageReader } from './page';
 
 export const HUNTERA_FIELDS: FieldAliases = {
   name: ['characterName', 'charName', 'name'],
@@ -28,12 +29,13 @@ export const huntera: GameModule = {
     name: 'Huntera',
     startUrl: 'https://huntera.com.br/welcome',
     hosts: ['huntera.com.br'],
-    // Relato de fórum fala em ban acima de 4 navegadores por IP; não confirmado.
+    // Regras: ferramentas de apoio podem abrir até 4 contas.
     maxAccounts: 4,
     policy: {
       read: true,
       recommend: true,
-      // As regras do Huntera não aceitam automação. O módulo só lê e recomenda.
+      // Regras: proibido o que jogue no seu lugar; permitidos medidores, multicontas
+      // até 4 e recursos de organização ou visualização.
       automate: false,
       note: 'O Huntera não aceita automação. O navegador só lê o jogo e recomenda; quem joga é você.',
     },
@@ -43,5 +45,6 @@ export const huntera: GameModule = {
       return readEvent(event, previous, HUNTERA_FIELDS, { gameId: 'huntera', profileId });
     },
   },
+  pageReader: hunteraPageReader,
   analyzer: hunteraAnalyzer,
 };

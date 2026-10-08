@@ -29,6 +29,11 @@
       <ul id="profile-list"></ul>
     </section>
 
+    <section>
+      <h2>Alertas</h2>
+      <ul id="alerts"><li class="muted">Nenhum alerta ainda.</li></ul>
+    </section>
+
     <section id="detail" hidden>
       <h2 id="detail-title"></h2>
       <dl id="state"></dl>
@@ -39,8 +44,10 @@
       <h3>Preços</h3>
       <label class="inline">R$ por 1.000 de ouro <input id="gold-price" type="number" step="0.01" min="0" /></label>
 
-      <h3>Automação</h3>
-      <label class="inline"><input id="automation" type="checkbox" /> Ligada nesta conta</label>
+      <div id="automation-box">
+        <h3>Automação</h3>
+        <label class="inline"><input id="automation" type="checkbox" /> Ligada nesta conta</label>
+      </div>
       <p id="policy-note" class="muted"></p>
 
       <h3>Assistente</h3>

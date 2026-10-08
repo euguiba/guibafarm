@@ -15,13 +15,14 @@ contextBridge.exposeInMainWorld('api', {
   setLayout: invoke('layout:set'),
   setRecording: invoke('record:set'),
   getState: invoke('state:get'),
+  listAlerts: invoke('alerts:list'),
   getRecommendations: invoke('recommendations:get'),
   getPrices: invoke('prices:get'),
   setPrices: invoke('prices:set'),
   setAutomation: invoke('automation:set'),
   runAction: invoke('action:run'),
   ask: invoke('assistant:ask'),
-  on: (channel: 'state' | 'recommendations' | 'log', listener: (payload: unknown) => void) => {
+  on: (channel: 'state' | 'recommendations' | 'log' | 'alert', listener: (payload: unknown) => void) => {
     ipcRenderer.on(channel, (_e, payload) => listener(payload));
   },
 });

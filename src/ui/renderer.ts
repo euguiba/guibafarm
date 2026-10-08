@@ -34,6 +34,14 @@ interface UiRecommendation {
   action?: { kind: string; params: Record<string, unknown> };
 }
 
+interface UiAlert {
+  profileId: string;
+  kind: string;
+  title: string;
+  body: string;
+  at: number;
+}
+
 interface UiPrices {
   currencyBrlPer1k: Record<string, number>;
   itemBrl: Record<string, number>;
@@ -50,13 +58,14 @@ interface Window {
     setLayout(mode: 'single' | 'grid'): Promise<void>;
     setRecording(id: string, on: boolean): Promise<string>;
     getState(id: string): Promise<UiState | undefined>;
+    listAlerts(): Promise<UiAlert[]>;
     getRecommendations(id: string): Promise<UiRecommendation[]>;
     getPrices(): Promise<UiPrices>;
     setPrices(prices: UiPrices): Promise<void>;
     setAutomation(id: string, on: boolean): Promise<boolean>;
     runAction(id: string, rec: UiRecommendation): Promise<string>;
     ask(id: string, question: string): Promise<string>;
-    on(channel: 'state' | 'recommendations' | 'log', listener: (payload: any) => void): void;
+    on(channel: 'state' | 'recommendations' | 'log' | 'alert', listener: (payload: any) => void): void;
   };
 }
 
@@ -116,6 +125,48 @@ async function renderProfiles(): Promise<void> {
   $('empty').textContent = profiles.some((p) => p.open) ? '' : 'Adicione uma conta e clique em Abrir.';
 }
 
+// Nome legível dos recursos; os que não estão aqui ficam de fora do painel.
+const RESOURCE_LABELS: Record<string, (v: number, r: Record<string, number>) => string | undefined> = {
+  gold: (v) => num(v),
+  diamonds: (v) => num(v),
+  huntera_coins: (v) => num(v),
+  stamina_min: (v) => `${Math.floor(v / 60)}h${String(v % 60).padStart(2, '0')}`,
+  capacity_oz: (v) => `${num(v)} oz`,
+  xp_pct: (v) => `${v}%`,
+  xp_log: (v) => num(v),
+  biggest_hit: (v) => num(v),
+  damage_log: (v, r) => (r.hits_log ? `${num(v)} em ${num(r.hits_log)} acertos` : num(v)),
+  deaths: (v) => num(v),
+  disconnected: (v) => (v ? 'sim' : 'não'),
+};
+const RESOURCE_NAMES: Record<string, string> = {
+  gold: 'Ouro',
+  diamonds: 'Diamantes',
+  huntera_coins: 'Huntera Coins',
+  stamina_min: 'Stamina',
+  capacity_oz: 'Capacidade',
+  xp_pct: 'XP do nível',
+  xp_log: 'XP no log',
+  biggest_hit: 'Maior hit',
+  damage_log: 'Dano no log',
+  deaths: 'Mortes',
+  disconnected: 'Desconectado',
+};
+
+function renderAlerts(alerts: UiAlert[]): void {
+  const ul = $<HTMLUListElement>('alerts');
+  ul.replaceChildren();
+  if (alerts.length === 0) {
+    ul.append(el('li', 'muted', 'Nenhum alerta ainda.'));
+    return;
+  }
+  for (const a of alerts.slice(0, 8)) {
+    const li = el('li', 'rec alert');
+    li.append(el('div', 'title', a.title), el('div', undefined, `${a.body} · ${new Date(a.at).toLocaleTimeString('pt-BR')}`));
+    ul.append(li);
+  }
+}
+
 function renderState(state: UiState | undefined): void {
   const dl = $<HTMLDListElement>('state');
   dl.replaceChildren();
@@ -128,7 +179,10 @@ function renderState(state: UiState | undefined): void {
     ['Nível', num(state.character.level)],
     ['XP', num(state.character.experience)],
     ['Local', state.location ?? '—'],
-    ...Object.entries(state.resources).map(([k, v]) => [k, num(v)] as [string, string]),
+    ...Object.entries(state.resources).flatMap(([k, v]) => {
+      const show = RESOURCE_LABELS[k]?.(v, state.resources);
+      return show === undefined ? [] : [[RESOURCE_NAMES[k] ?? k, show] as [string, string]];
+    }),
     ['Atualizado', new Date(state.at).toLocaleTimeString('pt-BR')],
   ];
   for (const [k, v] of rows) dl.append(el('dt', undefined, k), el('dd', undefined, v));
@@ -167,6 +221,7 @@ async function select(id: string): Promise<void> {
   const auto = $<HTMLInputElement>('automation');
   auto.checked = false;
   auto.disabled = !(game?.policy.automate && game.hasActor);
+  $('automation-box').hidden = auto.disabled;
   $('policy-note').textContent = game?.policy.note ?? '';
   $('chat').replaceChildren();
   await renderProfiles();
@@ -241,8 +296,10 @@ async function init(): Promise<void> {
   window.api.on('recommendations', (p: { profileId: string; recommendations: UiRecommendation[] }) => {
     if (p.profileId === selectedId) renderRecs(p.recommendations);
   });
+  window.api.on('alert', async () => renderAlerts(await window.api.listAlerts()));
   window.api.on('log', (entry: { profileId: string; message: string }) => console.log('[automação]', entry.profileId, entry.message));
 
+  renderAlerts(await window.api.listAlerts());
   await renderProfiles();
 }
 
