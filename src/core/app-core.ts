@@ -33,6 +33,7 @@ export interface BrowserHost {
   reload(profileId?: string): void;
   setMuted(profileId: string, muted: boolean): void;
   setTurbo(on: boolean): void;
+  setSidebarCollapsed(collapsed: boolean): void;
   metrics(): ViewMetrics;
   page(profileId: string): PageControl | undefined;
 }
@@ -73,6 +74,7 @@ export class AppCore {
     const settings = this.store.getSettings();
     if (isLayoutMode(settings.layout)) this.host.setLayout(settings.layout);
     this.host.setTurbo(settings.turbo);
+    this.host.setSidebarCollapsed(settings.sidebarCollapsed);
     this.timer = setInterval(() => {
       for (const id of this.host.openIds()) {
         const profile = this.store.getProfile(id);
@@ -176,6 +178,11 @@ export class AppCore {
     'turbo:set': (on: boolean) => {
       this.store.setSettings({ turbo: !!on });
       this.host.setTurbo(!!on);
+    },
+
+    'sidebar:set': (collapsed: boolean) => {
+      this.store.setSettings({ sidebarCollapsed: !!collapsed });
+      this.host.setSidebarCollapsed(!!collapsed);
     },
 
     'view:select': (id: string) => this.host.select(id),

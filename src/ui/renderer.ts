@@ -116,7 +116,8 @@ interface Window {
     openProfile(id: string): Promise<void>;
     closeProfile(id: string): Promise<void>;
     setLayout(mode: string): Promise<void>;
-    getSettings(): Promise<{ layout: string; turbo: boolean }>;
+    getSettings(): Promise<{ layout: string; turbo: boolean; sidebarCollapsed: boolean }>;
+    setSidebarCollapsed(collapsed: boolean): Promise<void>;
     setTurbo(on: boolean): Promise<void>;
     selectView(id: string): Promise<void>;
     reloadView(id?: string): Promise<void>;
@@ -165,8 +166,7 @@ async function renderProfiles(): Promise<void> {
   root.replaceChildren();
   const open = profiles.filter((p) => p.open).length;
   $('open-count').textContent = `${open} ${open === 1 ? 'aberta' : 'abertas'}`;
-  $('iso-count').textContent = String(open);
-  $('m-open').textContent = String(open);
+  renderRail(profiles);
 
   for (const game of games) {
     const mine = profiles.filter((p) => p.gameId === game.id);
@@ -176,7 +176,7 @@ async function renderProfiles(): Promise<void> {
     const head = el('div', 'group-head');
     head.append(
       el('span', 'group-name', game.name),
-      el('span', 'chip-mini', game.maxAccounts ? `${mine.length}/${game.maxAccounts}` : String(mine.length)),
+      el('span', 'pill', game.maxAccounts ? `${mine.length}/${game.maxAccounts}` : String(mine.length)),
       el('span', 'caret', collapsed.has(game.id) ? '▸' : '▾'),
     );
     head.addEventListener('click', () => {
@@ -193,13 +193,72 @@ async function renderProfiles(): Promise<void> {
   $('empty').hidden = open > 0;
 }
 
+// Cada conta ganha uma cor fixa (pela id), repetida na lista, na faixa recolhida e no cabeçalho da tela.
+const ACCOUNT_COLORS = ['#e0b04a', '#5ab0f5', '#a78bfa', '#f2877b', '#34d399', '#f5a35a', '#5fd4d0', '#e57ab8'];
+
+function colorOf(id: string): string {
+  let h = 0;
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return ACCOUNT_COLORS[h % ACCOUNT_COLORS.length];
+}
+
+function initials(label: string): string {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  const text = words.length > 1 ? words[0][0] + words[1][0] : label.trim().slice(0, 2);
+  return text.toUpperCase() || '?';
+}
+
+// Faixa estreita da barra recolhida: uma bolinha por conta, verde quando aberta.
+function renderRail(profiles: UiProfile[]): void {
+  const rail = $('rail');
+  rail.replaceChildren();
+  for (const p of profiles) {
+    const b = el('button', 'avatar', initials(p.label));
+    b.style.setProperty('--acc', colorOf(p.id));
+    if (p.open) b.classList.add('open');
+    if (p.id === selectedId) b.classList.add('selected');
+    b.title = `${p.label} · ${gameById(p.gameId)?.name ?? p.gameId}${p.open ? '' : ' (fechada)'}`;
+    b.addEventListener('click', async () => {
+      if (!p.open) await window.api.openProfile(p.id);
+      await select(p.id);
+    });
+    rail.append(b);
+  }
+  const add = el('button', 'avatar add', '+');
+  add.title = 'Adicionar conta';
+  add.addEventListener('click', () => { void setCollapsed(false); showAddForm(true); });
+  rail.append(add);
+}
+
+async function setCollapsed(collapsed: boolean): Promise<void> {
+  document.body.classList.toggle('collapsed', collapsed);
+  $('collapse').textContent = collapsed ? '›' : '‹';
+  $('collapse').title = collapsed ? 'Abrir a barra (Ctrl+B)' : 'Recolher a barra (Ctrl+B)';
+  await window.api.setSidebarCollapsed(collapsed);
+}
+
+function showAddForm(show: boolean): void {
+  $('add-form').hidden = !show;
+  $('new-account').textContent = show ? 'Cancelar' : '+ Nova';
+  if (show) $<HTMLSelectElement>('game-select').focus();
+  else $('add-warning').hidden = true;
+}
+
 function profileItem(p: UiProfile, game: UiGame): HTMLElement {
   const li = el('li');
+  li.style.setProperty('--acc', colorOf(p.id));
   if (p.id === selectedId) li.classList.add('selected');
   if (p.open) li.classList.add('open');
   const top = el('div', 'item-top');
-  top.append(el('i', 'dot'), el('div', 'name', p.label), el('div', 'badge', p.open ? 'aberta' : 'fechada'));
-  if (p.recording) top.append(el('div', 'badge rec-on', 'gravando'));
+  top.append(el('i', 'dot'), el('div', 'name', p.label), el('i', 'status'));
+  const sub = el('div', 'item-sub');
+  sub.append(el('span', undefined, p.open ? 'Aberta' : 'Fechada'));
+  if (p.recording) sub.append(el('span', 'rec-on', 'gravando'));
+  if (p.open) {
+    const metric = el('span', 'item-metric');
+    metric.dataset.profile = p.id;
+    sub.append(metric);
+  }
   const actions = el('div', 'actions');
   const button = (label: string, onClick: () => Promise<void>) => {
     const b = el('button', undefined, label);
@@ -223,7 +282,7 @@ function profileItem(p: UiProfile, game: UiGame): HTMLElement {
     await window.api.removeProfile(p.id);
     if (selectedId === p.id) { selectedId = undefined; $('detail').hidden = true; }
   });
-  li.append(top, actions);
+  li.append(top, sub, actions);
   li.addEventListener('click', () => void select(p.id));
   return li;
 }
@@ -250,6 +309,7 @@ function renderTiles(data: UiTiles): void {
     }
     const id = t.profileId;
     if (t.focused) frame.classList.add('focused');
+    frame.style.setProperty('--acc', colorOf(id));
     const head = el('div', 'tile-head');
     head.style.height = `${t.head}px`;
     let host = '';
@@ -268,7 +328,7 @@ function renderTiles(data: UiTiles): void {
       b.addEventListener('click', async (ev) => { ev.stopPropagation(); await onClick(); });
       head.append(b);
     };
-    icon(t.muted ? '🔇' : '🔊', t.muted ? 'Ligar o som' : 'Silenciar', () => window.api.muteView(id, !t.muted));
+    icon(t.muted ? '🔇' : '🔈', t.muted ? 'Ligar o som' : 'Silenciar', () => window.api.muteView(id, !t.muted));
     icon('⟳', 'Recarregar', () => window.api.reloadView(id));
     icon('⤢', 'Ver só esta tela', async () => { await window.api.setLayout('1x1'); await select(id); });
     icon('✕', 'Fechar a conta', async () => { await window.api.closeProfile(id); await renderProfiles(); });
@@ -283,7 +343,7 @@ function renderTiles(data: UiTiles): void {
 function setTurboButton(on: boolean): void {
   const b = $('turbo');
   b.classList.toggle('on', on);
-  b.querySelector('b')!.textContent = on ? 'ON' : 'OFF';
+  b.querySelector('b')!.textContent = on ? 'on' : 'off';
 }
 
 async function pollMetrics(): Promise<void> {
@@ -291,9 +351,9 @@ async function pollMetrics(): Promise<void> {
     const m = await window.api.getMetrics();
     $('m-cpu').textContent = `${m.cpu.toFixed(1)}%`;
     $('m-ram').textContent = `${Math.round(m.ramMb)} MB`;
-    document.querySelectorAll<HTMLElement>('.tile-metric').forEach((span) => {
+    document.querySelectorAll<HTMLElement>('.tile-metric, .item-metric').forEach((span) => {
       const v = m.perProfile[span.dataset.profile ?? ''];
-      span.textContent = v ? `${v.cpu.toFixed(1)}% · ${Math.round(v.ramMb)} MB` : '';
+      span.textContent = v ? `CPU ${v.cpu.toFixed(1)}%  ·  ${Math.round(v.ramMb)} MB` : '';
     });
   } catch {
     // janela fechando
@@ -465,7 +525,9 @@ async function select(id: string): Promise<void> {
   const game = gameById(p.gameId);
   currentGameId = p.gameId;
   $('detail').hidden = false;
-  $('detail-title').textContent = `${p.label} · ${game?.name ?? p.gameId}`;
+  const title = $('detail-title');
+  title.style.setProperty('--acc', colorOf(p.id));
+  title.replaceChildren(el('i', 'dot'), el('span', undefined, p.label), el('span', 'pill', game?.name ?? p.gameId));
   renderState(await window.api.getState(id));
   renderRecs(await window.api.getRecommendations(id));
   await renderHunts();
@@ -501,13 +563,21 @@ async function init(): Promise<void> {
     const warn = $('add-warning');
     warn.hidden = !(res.warning || res.error);
     warn.textContent = res.warning ?? res.error ?? '';
-    if (res.profile) { label.value = ''; site.value = ''; }
+    if (res.profile) { label.value = ''; site.value = ''; showAddForm(false); }
     await renderProfiles();
   });
 
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) =>
     b.addEventListener('click', () => void window.api.setLayout(b.dataset.layout!)),
   );
+  $('collapse').addEventListener('click', () => void setCollapsed(!document.body.classList.contains('collapsed')));
+  document.addEventListener('keydown', (ev) => {
+    if (ev.ctrlKey && ev.key.toLowerCase() === 'b') {
+      ev.preventDefault();
+      void setCollapsed(!document.body.classList.contains('collapsed'));
+    }
+  });
+  $('new-account').addEventListener('click', () => showAddForm($('add-form').hidden));
   $('turbo').addEventListener('click', () => void window.api.setTurbo(!$('turbo').classList.contains('on')));
   $('reload-all').addEventListener('click', () => void window.api.reloadView());
   $('url-form').addEventListener('submit', async (ev) => {
@@ -524,6 +594,7 @@ async function init(): Promise<void> {
   const settings = await window.api.getSettings();
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === settings.layout));
   setTurboButton(settings.turbo);
+  if (settings.sidebarCollapsed) void setCollapsed(true);
   setInterval(() => void pollMetrics(), 2000);
   void pollMetrics();
 

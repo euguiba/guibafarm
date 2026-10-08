@@ -8,22 +8,28 @@
 </head>
 <body>
   <aside id="sidebar">
-    <section>
-      <h1>Navegador Idle</h1>
-      <form id="add-form">
-        <select id="game-select"></select>
-        <input id="site-input" placeholder="Endereço do site, ex.: jogo.com.br" hidden />
-        <input id="label-input" placeholder="Apelido da conta" />
-        <button type="submit">Adicionar conta</button>
-      </form>
-      <p id="add-warning" class="warning" hidden></p>
-    </section>
+    <div class="side-head">
+      <img class="logo" src="logo.png" alt="" />
+      <span class="brand">Navegador Idle</span>
+      <button id="collapse" class="ghost" title="Recolher a barra (Ctrl+B)">‹</button>
+    </div>
 
+    <nav id="rail" aria-label="Contas"></nav>
+
+    <div class="side-body">
     <section>
       <div class="row">
         <h2>Contas</h2>
-        <span id="open-count" class="chip-mini">0 abertas</span>
+        <span id="open-count" class="pill">0 abertas</span>
+        <button id="new-account" class="ghost small" title="Adicionar conta">+ Nova</button>
       </div>
+      <form id="add-form" hidden>
+        <select id="game-select"></select>
+        <input id="site-input" placeholder="Endereço do site, ex.: jogo.com.br" hidden />
+        <input id="label-input" placeholder="Apelido da conta" />
+        <button type="submit" class="primary">Adicionar</button>
+      </form>
+      <p id="add-warning" class="warning" hidden></p>
       <div id="profile-groups"></div>
     </section>
 
@@ -72,29 +78,24 @@
         <button type="submit">Perguntar</button>
       </form>
     </section>
+    </div>
   </aside>
   <div id="workspace">
     <header id="topbar">
-      <div class="toolbar">
-        <div class="segmented" id="layouts">
-          <button data-layout="1x1" title="Uma tela">▢ 1x1</button>
-          <button data-layout="split" title="Duas telas lado a lado">◫ Split</button>
-          <button data-layout="2x2" title="Quatro telas">⊞ 2x2</button>
-          <button data-layout="3x3" title="Nove telas">⊞ 3x3</button>
-        </div>
-        <div class="meter"><span>CPU</span><b id="m-cpu">—</b></div>
-        <div class="meter"><span>RAM</span><b id="m-ram">—</b></div>
-        <div class="meter"><span>Telas</span><b id="m-open">0</b></div>
-        <span class="spacer"></span>
-        <button id="turbo" class="toggle" title="Desacelera as telas fora de foco para sobrar desempenho para a que você está usando">⚡ Turbo <b>OFF</b></button>
-        <button id="reload-all" title="Recarregar todas as contas abertas">⟳ Recarregar</button>
+      <div class="segmented" id="layouts">
+        <button data-layout="1x1" title="Uma tela">1x1</button>
+        <button data-layout="split" title="Duas telas lado a lado">Split</button>
+        <button data-layout="2x2" title="Quatro telas">2x2</button>
+        <button data-layout="3x3" title="Nove telas">3x3</button>
       </div>
       <form class="urlbar" id="url-form">
-        <span class="globe">◎</span>
-        <input id="url-input" placeholder="Digite um endereço ou pesquise; abre na conta em foco" spellcheck="false" />
-        <button type="submit">Ir</button>
-        <span class="iso"><i class="dot"></i><span id="iso-count">0</span> isoladas</span>
+        <input id="url-input" placeholder="Endereço ou pesquisa · abre na conta em foco" spellcheck="false" />
+        <button type="submit" class="ghost small">Ir</button>
       </form>
+      <div class="meter" title="Uso de CPU do app"><span>CPU</span><b id="m-cpu">—</b></div>
+      <div class="meter" title="Memória usada pelo app"><span>RAM</span><b id="m-ram">—</b></div>
+      <button id="turbo" class="toggle" title="Desacelera as telas fora de foco para sobrar desempenho para a que você está usando">Turbo <b>off</b></button>
+      <button id="reload-all" class="ghost" title="Recarregar todas as contas abertas">⟳</button>
     </header>
     <main id="stage"><div id="empty">Adicione uma conta e clique em Abrir.</div></main>
   </div>

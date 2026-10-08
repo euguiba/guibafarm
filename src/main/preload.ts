@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('api', {
   setLayout: invoke('layout:set'),
   getSettings: invoke('settings:get'),
   setTurbo: invoke('turbo:set'),
+  setSidebarCollapsed: invoke('sidebar:set'),
   selectView: invoke('view:select'),
   reloadView: invoke('view:reload'),
   muteView: invoke('view:mute'),

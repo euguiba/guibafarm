@@ -20,9 +20,11 @@ export interface Profile {
 export interface Settings {
   layout: string;
   turbo: boolean;
+  /** Barra lateral recolhida: só a faixa estreita com as contas. */
+  sidebarCollapsed: boolean;
 }
 
-const DEFAULT_SETTINGS: Settings = { layout: '1x1', turbo: false };
+const DEFAULT_SETTINGS: Settings = { layout: '1x1', turbo: false, sidebarCollapsed: false };
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil
 const MAX_RECORDED_BODY = 200_000;

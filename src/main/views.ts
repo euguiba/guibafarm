@@ -12,13 +12,15 @@ import type { GameModule } from '../sdk/types';
 import { attachCapture } from './capture';
 import { watchPage } from './page-watch';
 
-export const SIDEBAR_WIDTH = 340;
-/** Altura da barra de cima (botões de grade, medidores e barra de endereço); igual ao CSS. */
-export const TOPBAR_HEIGHT = 104;
+/** Largura da barra lateral aberta e recolhida; igual ao CSS. */
+export const SIDEBAR_WIDTH = 288;
+export const SIDEBAR_COLLAPSED = 64;
+/** Altura da barra de cima (grade, endereço, medidores e turbo numa linha só); igual ao CSS. */
+export const TOPBAR_HEIGHT = 52;
 /** Altura do cabeçalho de cada tela; igual ao CSS. */
-export const TILE_HEAD = 30;
-const PAD = 10;
-const GAP = 10;
+export const TILE_HEAD = 28;
+const PAD = 6;
+const GAP = 6;
 /** No turbo, as telas fora de foco rodam o JavaScript nesta fração da velocidade. */
 const TURBO_CPU_RATE = 3;
 
@@ -48,6 +50,7 @@ export class ElectronHost implements BrowserHost {
   private selected: string | undefined;
   private mode: LayoutMode = '1x1';
   private turbo = false;
+  private sidebar = SIDEBAR_WIDTH;
 
   constructor(
     private readonly win: BaseWindow,
@@ -136,6 +139,11 @@ export class ElectronHost implements BrowserHost {
     this.layout();
   }
 
+  setSidebarCollapsed(collapsed: boolean): void {
+    this.sidebar = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_WIDTH;
+    this.layout();
+  }
+
   metrics(): ViewMetrics {
     const cores = Math.max(1, cpus().length);
     const byPid = new Map(app.getAppMetrics().map((m) => [m.pid, m]));
@@ -167,7 +175,7 @@ export class ElectronHost implements BrowserHost {
 
   private cells(): Cell[] {
     const { width, height } = this.win.getContentBounds();
-    const area = { x: SIDEBAR_WIDTH, y: TOPBAR_HEIGHT, width: Math.max(0, width - SIDEBAR_WIDTH), height: Math.max(0, height - TOPBAR_HEIGHT) };
+    const area = { x: this.sidebar, y: TOPBAR_HEIGHT, width: Math.max(0, width - this.sidebar), height: Math.max(0, height - TOPBAR_HEIGHT) };
     return computeCells(this.mode, this.openIds(), this.selected, area, { pad: PAD, gap: GAP });
   }
 
