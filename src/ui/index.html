@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'" />
+  <title>Navegador Idle</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside id="sidebar">
+    <section>
+      <h1>Navegador Idle</h1>
+      <form id="add-form">
+        <select id="game-select"></select>
+        <input id="label-input" placeholder="Apelido da conta" />
+        <button type="submit">Adicionar conta</button>
+      </form>
+      <p id="add-warning" class="warning" hidden></p>
+    </section>
+
+    <section>
+      <div class="row">
+        <h2>Contas</h2>
+        <div class="segmented">
+          <button data-layout="single" class="active">Uma</button>
+          <button data-layout="grid">Grade</button>
+        </div>
+      </div>
+      <ul id="profile-list"></ul>
+    </section>
+
+    <section id="detail" hidden>
+      <h2 id="detail-title"></h2>
+      <dl id="state"></dl>
+
+      <h3>Recomendações</h3>
+      <ul id="recs"></ul>
+
+      <h3>Preços</h3>
+      <label class="inline">R$ por 1.000 de ouro <input id="gold-price" type="number" step="0.01" min="0" /></label>
+
+      <h3>Automação</h3>
+      <label class="inline"><input id="automation" type="checkbox" /> Ligada nesta conta</label>
+      <p id="policy-note" class="muted"></p>
+
+      <h3>Assistente</h3>
+      <div id="chat"></div>
+      <form id="ask-form">
+        <input id="question" placeholder="Ex.: vale trocar de caça agora?" />
+        <button type="submit">Perguntar</button>
+      </form>
+    </section>
+  </aside>
+  <main id="empty">Adicione uma conta e clique em Abrir.</main>
+  <script src="renderer.js"></script>
+</body>
+</html>
