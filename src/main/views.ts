@@ -3,7 +3,9 @@
 // cada célula tem um cabeçalho desenhado pela interface logo acima da página.
 
 import { app, screen, shell, WebContentsView, type BaseWindow, type WebContents } from 'electron';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
+import { join } from 'node:path';
 import type { PageControl } from '../core/actions';
 import type { BrowserHost, PageFeeds, RenderOptions, ViewMetrics } from '../core/app-core';
 import type { Profile } from '../core/store';
@@ -23,6 +25,14 @@ const PAD = 6;
 const GAP = 6;
 /** No turbo, as telas fora de foco rodam o JavaScript nesta fração da velocidade. */
 const TURBO_CPU_RATE = 3;
+/** Tela que travou ou fechou sozinha (falta de memória, por exemplo) recarrega até tantas vezes por minuto. */
+const MAX_AUTO_RELOADS = 3;
+
+/** Por quanto tempo um cookie de sessão (que o navegador apagaria ao fechar) fica guardado. */
+const KEEP_SESSION_COOKIES_DAYS = 30;
+
+/** sessionStorage de cada origem aberta na conta: alguns jogos guardam o login só ali. */
+type SessionSnapshot = Record<string, Record<string, string>>;
 
 interface Entry {
   view: WebContentsView;
@@ -35,6 +45,8 @@ interface Entry {
   zoom: number;
   /** Resolução aplicada agora (1 = nativa). */
   scale: number;
+  visible: boolean;
+  crashes: number[];
 }
 
 export interface TileInfo extends Cell {
@@ -52,6 +64,7 @@ export type HostChannel = 'tiles';
 
 export class ElectronHost implements BrowserHost {
   private entries = new Map<string, Entry>();
+  private keptSessions = new WeakSet<Electron.Session>();
   private selected: string | undefined;
   private mode: LayoutMode = '1x1';
   private turbo = false;
@@ -63,6 +76,8 @@ export class ElectronHost implements BrowserHost {
   constructor(
     private readonly win: BaseWindow,
     private readonly onUi: (channel: HostChannel, payload: unknown) => void,
+    /** Pasta onde fica o sessionStorage salvo de cada conta. */
+    private readonly sessionDir?: string,
   ) {
     win.on('resize', () => this.layout());
   }
@@ -82,8 +97,16 @@ export class ElectronHost implements BrowserHost {
         if (game.pageReader) detach.push(watchPage(wc, game.manifest.hosts, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
       const url = profile.url ?? game.manifest.startUrl;
-      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1 };
+      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, crashes: [] };
       this.entries.set(profile.id, entry);
+      // Página que fechou sozinha (falta de memória, travamento) deixava a tela preta: recarrega.
+      wc.on('render-process-gone', (_e, details) => {
+        if (details.reason === 'clean-exit' || !this.entries.has(profile.id)) return;
+        const now = Date.now();
+        entry.crashes = entry.crashes.filter((t) => now - t < 60_000).concat(now);
+        console.warn(`[tela] ${profile.label}: página fechou (${details.reason})`);
+        if (entry.crashes.length <= MAX_AUTO_RELOADS) setTimeout(() => !wc.isDestroyed() && wc.reload(), 1000);
+      });
       const onNav = (_e: unknown, next: string) => {
         entry.url = next;
         this.emitTiles();
@@ -97,6 +120,8 @@ export class ElectronHost implements BrowserHost {
         void shell.openExternal(target);
         return { action: 'deny' };
       });
+      this.keepSessionCookies(wc.session);
+      await this.restoreSession(profile.id, wc);
       void wc.loadURL(url);
     }
     this.selected = profile.id;
@@ -106,6 +131,7 @@ export class ElectronHost implements BrowserHost {
   async close(profileId: string): Promise<void> {
     const entry = this.entries.get(profileId);
     if (!entry) return;
+    await this.saveSession(profileId, entry.view.webContents);
     for (const d of entry.detach) d();
     this.win.contentView.removeChildView(entry.view);
     entry.view.webContents.close();
@@ -200,6 +226,103 @@ export class ElectronHost implements BrowserHost {
     return { cpu: cpu / cores, ramMb: kb / 1024, perProfile };
   }
 
+  /** Depois de a placa de vídeo reiniciar, as telas podem ficar pretas: redesenha todas. */
+  repaint(): void {
+    for (const entry of this.entries.values()) if (!entry.view.webContents.isDestroyed()) entry.view.webContents.invalidate();
+  }
+
+  /** Grava logins e dados das contas abertas no disco (ao fechar o app e de tempos em tempos). */
+  async persist(): Promise<void> {
+    const sessions = new Set<Electron.Session>();
+    for (const [id, entry] of this.entries) {
+      await this.saveSession(id, entry.view.webContents);
+      sessions.add(entry.view.webContents.session);
+    }
+    for (const ses of sessions) {
+      await ses.cookies.flushStore().catch(() => {});
+      ses.flushStorageData();
+    }
+  }
+
+  /**
+   * Muitos jogos guardam o login num cookie "de sessão", que o navegador apaga ao fechar. Na partição
+   * da conta, esse cookie ganha validade de alguns dias, como o "manter conectado" de um site.
+   */
+  private keepSessionCookies(ses: Electron.Session): void {
+    if (this.keptSessions.has(ses)) return;
+    this.keptSessions.add(ses);
+    ses.cookies.on('changed', (_e, cookie, _cause, removed) => {
+      if (removed || !cookie.session || !cookie.domain) return;
+      const host = cookie.domain.replace(/^\./, '');
+      const { session: _s, hostOnly, ...rest } = cookie;
+      void ses.cookies
+        .set({
+          ...rest,
+          url: `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path ?? '/'}`,
+          domain: hostOnly ? undefined : cookie.domain,
+          expirationDate: Date.now() / 1000 + KEEP_SESSION_COOKIES_DAYS * 86_400,
+        })
+        .catch(() => {});
+    });
+  }
+
+  private sessionFile(profileId: string): string | undefined {
+    return this.sessionDir && join(this.sessionDir, `${profileId.replace(/[^\w-]/g, '')}.json`);
+  }
+
+  private async saveSession(profileId: string, wc: WebContents): Promise<void> {
+    const file = this.sessionFile(profileId);
+    if (!file || wc.isDestroyed()) return;
+    const snapshot: SessionSnapshot = {};
+    let read = false;
+    for (const frame of wc.mainFrame?.framesInSubtree ?? []) {
+      try {
+        const res = (await frame.executeJavaScript(
+          `(() => { try { const o = {}; for (let i = 0; i < sessionStorage.length; i++) { const k = sessionStorage.key(i); o[k] = sessionStorage.getItem(k); } return [location.origin, o]; } catch { return null; } })()`,
+        )) as [string, Record<string, string>] | null;
+        if (res) read = true;
+        if (res && res[0] !== 'null' && Object.keys(res[1]).length) snapshot[res[0]] = { ...snapshot[res[0]], ...res[1] };
+      } catch {
+        // frame ainda carregando ou já fechado
+      }
+    }
+    try {
+      if (Object.keys(snapshot).length) {
+        mkdirSync(this.sessionDir!, { recursive: true });
+        writeFileSync(file, JSON.stringify(snapshot));
+      } else if (read) rmSync(file, { force: true });
+    } catch {
+      // sem permissão de escrita: segue sem salvar
+    }
+  }
+
+  /** Devolve o sessionStorage salvo só no primeiro carregamento, antes dos scripts do jogo rodarem. */
+  private async restoreSession(profileId: string, wc: WebContents): Promise<void> {
+    const file = this.sessionFile(profileId);
+    if (!file) return;
+    let snapshot: SessionSnapshot;
+    try {
+      snapshot = JSON.parse(readFileSync(file, 'utf8')) as SessionSnapshot;
+    } catch {
+      return;
+    }
+    const source = `(() => { try { const s = ${JSON.stringify(snapshot)}[location.origin]; if (!s || sessionStorage.length) return; for (const k in s) sessionStorage.setItem(k, s[k]); } catch {} })();`;
+    try {
+      // O depurador só responde depois que a aba tem uma página; a em branco é instantânea.
+      await wc.loadURL('about:blank');
+      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+      await wc.debugger.sendCommand('Page.enable');
+      const added = wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source }) as Promise<{ identifier: string }>;
+      const { identifier } = await Promise.race([added, new Promise<never>((_r, reject) => setTimeout(() => reject(new Error('timeout')), 2000))]);
+      // Só vale para a primeira página: se a pessoa sair da conta depois, o login não volta sozinho.
+      wc.once('did-finish-load', () => {
+        if (!wc.isDestroyed()) wc.debugger.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier }).catch(() => {});
+      });
+    } catch {
+      // sem depurador: a conta abre sem o sessionStorage salvo
+    }
+  }
+
   page(profileId: string): PageControl | undefined {
     const wc = this.entries.get(profileId)?.view.webContents;
     if (!wc) return undefined;
@@ -226,10 +349,16 @@ export class ElectronHost implements BrowserHost {
       if (!entry) continue;
       shown.add(cell.profileId!);
       entry.view.setVisible(true);
+      // Tela que volta a aparecer às vezes ficava preta até mexer na janela: pede um quadro novo.
+      if (!entry.visible) setTimeout(() => !entry.view.webContents.isDestroyed() && entry.view.webContents.invalidate(), 50);
+      entry.visible = true;
       entry.view.setBounds({ x: cell.x, y: cell.y + TILE_HEAD, width: cell.width, height: Math.max(0, cell.height - TILE_HEAD) });
     }
     for (const [id, entry] of this.entries) {
-      if (!shown.has(id)) entry.view.setVisible(false);
+      if (!shown.has(id)) {
+        entry.view.setVisible(false);
+        entry.visible = false;
+      }
       this.applyPower(id, entry, shown.has(id));
     }
     this.emitTiles(cells);

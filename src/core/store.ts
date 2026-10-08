@@ -41,6 +41,8 @@ export interface Settings {
   defaultZoom: number;
   /** Aceleração de hardware (GPU); vale depois de reabrir o app. */
   gpu: boolean;
+  /** Contas que estavam abertas; voltam abertas na próxima vez que o app iniciar. */
+  openProfiles: string[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -53,6 +55,7 @@ export const DEFAULT_SETTINGS: Settings = {
   turboResolution: 0.5,
   defaultZoom: 1,
   gpu: true,
+  openProfiles: [],
 };
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil

@@ -95,6 +95,7 @@ export class AppCore {
     this.host.setSidebarCollapsed(settings.sidebarCollapsed);
     this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
     this.applyFilter();
+    void this.reopen(settings.openProfiles);
     this.timer = setInterval(() => {
       for (const id of this.host.openIds()) {
         const profile = this.store.getProfile(id);
@@ -107,6 +108,29 @@ export class AppCore {
     if (this.timer) clearInterval(this.timer);
     this.actions.stopAll();
     for (const id of this.host.openIds()) await this.host.close(id);
+  }
+
+  /** Abre de novo as contas que estavam abertas quando o app fechou, na mesma ordem. */
+  private async reopen(ids: string[]): Promise<void> {
+    const selected = this.activeGroup();
+    for (const id of ids) {
+      const profile = this.store.getProfile(id);
+      if (profile) await this.openProfile(profile).catch(() => {});
+    }
+    if (selected) this.setActiveGroup(selected);
+  }
+
+  private async openProfile(profile: Profile): Promise<void> {
+    const game = this.gameOf(profile);
+    await this.host.open(profile, game, {
+      onCaptured: (ev) => this.onCaptured(profile, game, ev),
+      onSnapshot: (snap) => this.onSnapshot(profile, game, snap),
+    });
+    this.rememberOpen();
+  }
+
+  private rememberOpen(): void {
+    this.store.setSettings({ openProfiles: this.host.openIds() });
   }
 
   /** Página aberta: a escolhida, ou a primeira que tiver contas. */
@@ -194,21 +218,21 @@ export class AppCore {
     'profiles:remove': async (id: string) => {
       await this.host.close(id);
       this.store.removeProfile(id);
+      this.rememberOpen();
       this.applyFilter();
     },
 
     'profiles:open': async (id: string) => {
       const profile = this.store.getProfile(id);
       if (!profile) return;
-      const game = this.gameOf(profile);
       if (groupKey(profile) !== this.activeGroup()) this.setActiveGroup(groupKey(profile));
-      await this.host.open(profile, game, {
-        onCaptured: (ev) => this.onCaptured(profile, game, ev),
-        onSnapshot: (snap) => this.onSnapshot(profile, game, snap),
-      });
+      await this.openProfile(profile);
     },
 
-    'profiles:close': (id: string) => this.host.close(id),
+    'profiles:close': async (id: string) => {
+      await this.host.close(id);
+      this.rememberOpen();
+    },
 
     'layout:set': (mode: LayoutMode) => {
       if (!isLayoutMode(mode)) return;
