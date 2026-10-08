@@ -137,6 +137,7 @@ interface UiSettings {
   turboResolution: number;
   defaultZoom: number;
   gpu: boolean;
+  streamMode: boolean;
 }
 
 interface Window {
@@ -816,6 +817,8 @@ function syncSettings(s: UiSettings): void {
   });
   $<HTMLInputElement>('set-turbo').checked = s.turbo;
   $<HTMLInputElement>('set-gpu').checked = s.gpu;
+  $<HTMLInputElement>('set-stream').checked = s.streamMode;
+  document.body.classList.toggle('stream', s.streamMode);
   $('restart-note').hidden = s.gpu === gpuAtStart;
   setTurboButton(s.turbo);
 }
@@ -834,6 +837,7 @@ function initSettings(): void {
     await window.api.setTurbo((ev.target as HTMLInputElement).checked);
     syncSettings(await window.api.getSettings());
   });
+  $('set-stream').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ streamMode: (ev.target as HTMLInputElement).checked })));
   $('set-gpu').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ gpu: (ev.target as HTMLInputElement).checked })));
   $('relaunch').addEventListener('click', () => void window.api.relaunch());
   document.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) =>
@@ -977,6 +981,7 @@ async function init(): Promise<void> {
 
   renderAlerts(await window.api.listAlerts());
   await renderProfiles();
+  syncSettings(await window.api.getSettings());
   window.api.on('update', (u: UiUpdate) => renderUpdate(u));
   renderUpdate(await window.api.updateStatus());
   $('update-btn').addEventListener('click', () => { if ($('update-btn').classList.contains('ready')) void window.api.installUpdate(); });

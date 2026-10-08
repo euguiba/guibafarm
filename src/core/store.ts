@@ -41,6 +41,8 @@ export interface Settings {
   defaultZoom: number;
   /** Aceleração de hardware (GPU); vale depois de reabrir o app. */
   gpu: boolean;
+  /** Modo stream: esconde nomes das contas e endereços na tela do app. */
+  streamMode: boolean;
   /** Contas que estavam abertas; voltam abertas na próxima vez que o app iniciar. */
   openProfiles: string[];
 }
@@ -56,6 +58,7 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultZoom: 1,
   gpu: true,
   openProfiles: [],
+  streamMode: false,
 };
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil

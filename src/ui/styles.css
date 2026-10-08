@@ -505,3 +505,8 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 .update-btn { font-size: 12.5px; padding: 5px 11px; color: var(--text2); white-space: nowrap; }
 .update-btn.ready { color: #1a1407; background: var(--gold); border-color: var(--gold); font-weight: 700; }
 .update-btn.ready:hover { background: var(--gold-hi); }
+
+/* Modo stream: nomes das contas e endereços embaçados. */
+body.stream .acct-name, body.stream .tile-name, body.stream .tile-url, body.stream #url-input,
+body.stream #editor select, body.stream #editor input { filter: blur(5px); }
+body.stream .acct-name:hover { filter: none; }

@@ -47,6 +47,8 @@ interface Entry {
   scale: number;
   visible: boolean;
   crashes: number[];
+  retries: number;
+  retryTimer?: NodeJS.Timeout;
 }
 
 export interface TileInfo extends Cell {
@@ -102,7 +104,7 @@ export class ElectronHost implements BrowserHost {
         if (game.pageReader) detach.push(watchPage(wc, game.manifest.hosts, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
       const url = profile.url ?? game.manifest.startUrl;
-      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, crashes: [] };
+      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, crashes: [], retries: 0 };
       this.entries.set(profile.id, entry);
       // Página que fechou sozinha (falta de memória, travamento) deixava a tela preta: recarrega.
       wc.on('render-process-gone', (_e, details) => {
@@ -117,7 +119,20 @@ export class ElectronHost implements BrowserHost {
         this.emitTiles();
       };
       // O Chromium guarda o zoom por site; reaplica o da conta a cada página carregada.
-      wc.on('did-finish-load', () => wc.setZoomFactor(entry.zoom));
+      wc.on('did-finish-load', () => {
+        wc.setZoomFactor(entry.zoom);
+        entry.retries = 0;
+      });
+      // Reconexão: página que não carregou (internet caiu, servidor fora) tenta de novo sozinha,
+      // esperando cada vez mais (5 s, 15 s, 30 s, depois de minuto em minuto).
+      wc.on('did-fail-load', (_e, code, desc, failedUrl, isMainFrame) => {
+        if (!isMainFrame || code === -3) return; // -3: navegação cancelada, não é falha
+        const wait = [5, 15, 30][entry.retries] ?? 60;
+        entry.retries++;
+        console.warn(`[tela] ${profile.label}: não carregou (${desc}); tentando de novo em ${wait} s`);
+        clearTimeout(entry.retryTimer);
+        entry.retryTimer = setTimeout(() => !wc.isDestroyed() && void wc.loadURL(failedUrl || entry.url), wait * 1000);
+      });
       wc.on('did-navigate', onNav);
       wc.on('did-navigate-in-page', (e, next, isMainFrame) => isMainFrame && onNav(e, next));
       // Links que abrem nova janela vão para o navegador padrão, fora da partição da conta.
@@ -136,6 +151,7 @@ export class ElectronHost implements BrowserHost {
   async close(profileId: string): Promise<void> {
     const entry = this.entries.get(profileId);
     if (!entry) return;
+    clearTimeout(entry.retryTimer);
     await this.saveSession(profileId, entry.view.webContents);
     for (const d of entry.detach) d();
     this.win.contentView.removeChildView(entry.view);

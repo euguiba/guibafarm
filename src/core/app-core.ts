@@ -322,6 +322,7 @@ export class AppCore {
       if (RESOLUTIONS.includes(Number(patch.turboResolution))) next.turboResolution = Number(patch.turboResolution);
       if (Number(patch.defaultZoom) >= MIN_ZOOM && Number(patch.defaultZoom) <= MAX_ZOOM) next.defaultZoom = Number(patch.defaultZoom);
       if (typeof patch.gpu === 'boolean') next.gpu = patch.gpu;
+      if (typeof patch.streamMode === 'boolean') next.streamMode = patch.streamMode;
       const settings = this.store.setSettings(next);
       this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
       return settings;
