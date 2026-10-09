@@ -4,7 +4,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { CapturedEvent, GameState, PriceBook } from '../sdk/types';
+import type { CapturedEvent, GameState, HuntRun, PriceBook } from '../sdk/types';
 
 export interface Profile {
   id: string;
@@ -62,6 +62,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil
+const RUNS_LIMIT = 200; // caçadas lidas do histórico por perfil
 const MAX_RECORDED_BODY = 200_000;
 
 function readJson<T>(path: string, fallback: T): T {
@@ -82,6 +83,7 @@ export class Store {
   constructor(private readonly dir: string) {
     mkdirSync(join(dir, 'state'), { recursive: true });
     mkdirSync(join(dir, 'recordings'), { recursive: true });
+    mkdirSync(join(dir, 'hunts'), { recursive: true });
     this.profiles = readJson<Profile[]>(join(dir, 'profiles.json'), []);
     this.prices = readJson<PriceBook>(join(dir, 'prices.json'), { currencyBrlPer1k: {}, itemBrl: {} });
     this.settings = { ...DEFAULT_SETTINGS, ...readJson<Partial<Settings>>(join(dir, 'settings.json'), {}) };
@@ -178,6 +180,25 @@ export class Store {
     const day = new Date(event.at).toISOString().slice(0, 10);
     const body = event.body.length > MAX_RECORDED_BODY ? event.body.slice(0, MAX_RECORDED_BODY) : event.body;
     appendFileSync(join(this.dir, 'recordings', `${profileId}-${day}.jsonl`), JSON.stringify({ ...event, body }) + '\n');
+  }
+
+  /** Caçadas encerradas pelo analyzer de hunt, as mais recentes por último. */
+  listRuns(profileId: string): HuntRun[] {
+    const path = join(this.dir, 'hunts', `${profileId}.jsonl`);
+    if (!existsSync(path)) return [];
+    const out: HuntRun[] = [];
+    for (const line of readFileSync(path, 'utf8').split('\n').filter(Boolean).slice(-RUNS_LIMIT)) {
+      try {
+        out.push(JSON.parse(line) as HuntRun);
+      } catch {
+        // linha cortada; ignora
+      }
+    }
+    return out;
+  }
+
+  addRun(run: HuntRun): void {
+    appendFileSync(join(this.dir, 'hunts', `${run.profileId}.jsonl`), JSON.stringify(run) + '\n');
   }
 
   recordingsDir(): string {

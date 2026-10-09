@@ -11,7 +11,7 @@ import type { BrowserHost, PageFeeds, RenderOptions, ViewMetrics } from '../core
 import type { Profile } from '../core/store';
 import { computeCells, type Cell, type LayoutMode } from '../core/tiles';
 import type { GameModule } from '../sdk/types';
-import { attachCapture } from './capture';
+import { attachCapture, type CaptureControl } from './capture';
 import { watchPage } from './page-watch';
 
 /** Largura da barra lateral aberta (faixa de páginas + lista de contas) e recolhida (só a faixa); igual ao CSS. */
@@ -25,6 +25,8 @@ const PAD = 6;
 const GAP = 6;
 /** No turbo, as telas fora de foco rodam o JavaScript nesta fração da velocidade. */
 const TURBO_CPU_RATE = 3;
+/** De quanto em quanto tempo as contas devolvem memória que não estão usando. */
+const TRIM_EVERY_MS = 3 * 60_000;
 /** Tela que travou ou fechou sozinha (falta de memória, por exemplo) recarrega até tantas vezes por minuto. */
 const MAX_AUTO_RELOADS = 3;
 
@@ -39,6 +41,7 @@ interface Entry {
   profile: Profile;
   game: GameModule;
   detach: Array<() => void>;
+  capture?: CaptureControl;
   url: string;
   muted: boolean;
   cpuRate: number;
@@ -82,6 +85,7 @@ export class ElectronHost implements BrowserHost {
     private readonly sessionDir?: string,
   ) {
     win.on('resize', () => this.layout());
+    setInterval(() => this.trimMemory(), TRIM_EVERY_MS).unref();
     // No Windows, maximizar, restaurar ou esconder telas às vezes deixava a interface do app
     // (barra lateral e de cima) preta enquanto o jogo seguia desenhado: pede um quadro novo dela.
     for (const ev of ['maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen', 'show'] as const) {
@@ -92,19 +96,21 @@ export class ElectronHost implements BrowserHost {
   async open(profile: Profile, game: GameModule, feeds: PageFeeds): Promise<void> {
     if (!this.entries.has(profile.id)) {
       const view = new WebContentsView({
-        // Sem throttling por padrão: conta escondida continua rodando normal. O turbo liga.
-        webPreferences: { partition: profile.partition, contextIsolation: true, sandbox: true, backgroundThrottling: false },
+        // spellcheck desligado: o corretor carrega dicionários em cada conta e jogo não precisa dele.
+        webPreferences: { partition: profile.partition, contextIsolation: true, sandbox: true, backgroundThrottling: false, spellcheck: false },
       });
       view.setBackgroundColor('#070b14');
       this.win.contentView.addChildView(view);
       const wc = view.webContents;
       const detach: Array<() => void> = [];
+      let capture: CaptureControl | undefined;
       if (game.manifest.policy.read) {
-        detach.push(attachCapture(wc, game.manifest.hosts, (ev) => feeds.onCaptured(ev)));
+        capture = attachCapture(wc, game.manifest.hosts, (ev) => feeds.onCaptured(ev), feeds.network);
+        detach.push(capture.detach);
         if (game.pageReader) detach.push(watchPage(wc, game.manifest.hosts, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
       const url = profile.url ?? game.manifest.startUrl;
-      const entry: Entry = { view, profile, game, detach, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, crashes: [], retries: 0 };
+      const entry: Entry = { view, profile, game, detach, capture, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, crashes: [], retries: 0 };
       this.entries.set(profile.id, entry);
       // Página que fechou sozinha (falta de memória, travamento) deixava a tela preta: recarrega.
       wc.on('render-process-gone', (_e, details) => {
@@ -159,6 +165,24 @@ export class ElectronHost implements BrowserHost {
     this.entries.delete(profileId);
     if (this.selected === profileId) this.selected = this.shownIds()[0];
     this.layout();
+  }
+
+  /**
+   * Pede às contas que soltem caches (imagens decodificadas, fontes, lixo do JavaScript), como o
+   * Chrome faz quando falta memória. A conta em foco só limpa o leve, para não engasgar.
+   */
+  private trimMemory(): void {
+    for (const [id, entry] of this.entries) {
+      const wc = entry.view.webContents;
+      if (wc.isDestroyed() || wc.isLoading()) continue;
+      const level = !entry.visible ? 'critical' : 'moderate';
+      if (id === this.selected && entry.visible && this.mode === '1x1') continue;
+      sendCdp(wc, 'Memory.simulatePressureNotification', { level });
+    }
+  }
+
+  refreshCapture(profileId: string): void {
+    this.entries.get(profileId)?.capture?.update();
   }
 
   setFilter(profileIds: string[]): void {
@@ -411,7 +435,9 @@ export class ElectronHost implements BrowserHost {
     const wc = entry.view.webContents;
     const focused = id === this.selected;
     const background = this.turbo && !focused;
-    wc.setBackgroundThrottling(this.turbo && !visible);
+    // Conta escondida (outra página ou fora da grade) roda em segundo plano, como uma aba de fundo
+    // do Chrome: o jogo segue no servidor e a página gasta menos CPU e memória.
+    wc.setBackgroundThrottling(!visible);
     wc.setAudioMuted(entry.muted || background);
     const rate = background ? TURBO_CPU_RATE : 1;
     if (rate !== entry.cpuRate) {

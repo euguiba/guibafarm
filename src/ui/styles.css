@@ -510,3 +510,29 @@ dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
 body.stream .acct-name, body.stream .tile-name, body.stream .tile-url, body.stream #url-input,
 body.stream #editor select, body.stream #editor input { filter: blur(5px); }
 body.stream .acct-name:hover { filter: none; }
+
+/* Analyzer de hunt */
+.hunt-card { background: var(--surface); border: 1px solid var(--edge); border-radius: var(--radius); padding: 10px; margin: 8px 0 12px; }
+.hunt-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; }
+.hunt-head .muted { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hunt-status { font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--field); color: var(--text2); }
+.hunt-status[data-status='caçando'] { color: var(--ok); background: rgba(52, 211, 153, 0.12); }
+.hunt-status[data-status='pausado'] { color: var(--warn); background: rgba(251, 191, 36, 0.12); }
+.hunt-time { font-family: var(--mono); color: var(--text); }
+.hunt-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.hunt-stats p { grid-column: 1 / -1; margin: 0; font-size: 12px; }
+.hunt-stats .stat { background: var(--field); border-radius: 6px; padding: 5px 7px; display: flex; flex-direction: column; min-width: 0; }
+.hunt-stats .label { font-size: 10.5px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.04em; }
+.hunt-stats b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.hunt-stats .rate { font-size: 11px; color: var(--text2); font-variant-numeric: tabular-nums; }
+.hunt-stats .good b { color: var(--ok); }
+.hunt-stats .bad b { color: var(--danger); }
+.hunt-loot { list-style: none; margin: 0 0 8px; padding: 0; font-size: 12px; }
+.hunt-loot li { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; border-bottom: 1px solid var(--divider); }
+.hunt-loot li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.hunt-loot li b { font-variant-numeric: tabular-nums; }
+.hunt-loot li.spent b { color: var(--danger); }
+.rec .tag { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 1px 6px; margin-right: 6px; border-radius: 4px; background: var(--field); color: var(--text2); vertical-align: 1px; }
+.rec .tag.farm { color: var(--ok); }
+.rec .tag.venda { color: var(--gold); }
+.rec .tag.compra { color: var(--violet); }

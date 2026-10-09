@@ -3,6 +3,7 @@
 import { app, BrowserWindow, crashReporter, ipcMain, Notification } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { NOTIFY_KINDS, type Alert } from '../core/alerts';
 import { AppCore } from '../core/app-core';
 import { log, markClosed, markRunning, watchProcesses } from './diagnostics';
 import { startUpdater } from './updater';
@@ -13,7 +14,9 @@ app.setPath('userData', join(app.getPath('appData'), 'navegador-idle'));
 
 // No Windows, o Chromium às vezes acha que a janela está coberta e para de desenhar a interface
 // (tela preta com o jogo ainda aparecendo). Essa detecção fica desligada.
-app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+// Também ficam desligados recursos do Chrome que só gastam memória aqui: o processo reserva
+// para abrir páginas mais rápido e o cache de voltar/avançar, que guarda páginas antigas inteiras.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,SpareRendererForSitePerProcess,BackForwardCache');
 
 watchProcesses();
 // Falhas graves do Chromium ficam salvas em userData/Crashpad (só no PC, nada é enviado).
@@ -55,7 +58,9 @@ app.whenReady().then(() => {
   const host = new ElectronHost(win, send, join(app.getPath('userData'), 'sessions'));
   const core = new AppCore(app.getPath('userData'), host, (channel, payload) => {
     send(channel, payload);
-    if (channel === 'alert' && Notification.isSupported()) {
+    // Notificação do Windows só para o que pede ação (morte, queda, auto-catch parado);
+    // nível e stamina ficam só na lista de alertas do app.
+    if (channel === 'alert' && Notification.isSupported() && NOTIFY_KINDS.has((payload as Alert).kind)) {
       const { title, body } = payload as { title: string; body: string };
       new Notification({ title, body }).show();
     }

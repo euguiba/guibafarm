@@ -3,9 +3,10 @@
 // Cada modo fornece um BrowserHost e expõe `handlers` para a barra lateral.
 
 import { findGame, GAMES } from '../games';
-import type { CapturedEvent, GameModule, GameState, PageSnapshot, PriceBook, Recommendation } from '../sdk/types';
+import type { CapturedEvent, GameModule, GameState, HuntEvent, PageSnapshot, PriceBook, Recommendation } from '../sdk/types';
 import { ActionRunner, type PageControl } from './actions';
-import { detectAlerts, type Alert } from './alerts';
+import { AlertGate, detectAlerts, type Alert } from './alerts';
+import { HuntMeter } from './hunt-meter';
 import { Assistant } from './assistant';
 import { Store, type Profile, type Settings } from './store';
 import { isLayoutMode, toAddress, type LayoutMode } from './tiles';
@@ -19,6 +20,8 @@ export interface PageFeeds {
   onCaptured(event: CapturedEvent): void;
   /** Texto visível da página, lido periodicamente quando o jogo tem pageReader. */
   onSnapshot(snapshot: PageSnapshot): void;
+  /** Se a rede da conta precisa ser acompanhada agora, e de quais respostas copiar o corpo. */
+  network: { active(): boolean; wantsBody(url: string): boolean };
 }
 
 export interface BrowserHost {
@@ -26,6 +29,8 @@ export interface BrowserHost {
   open(profile: Profile, game: GameModule, feeds: PageFeeds): Promise<void>;
   close(profileId: string): Promise<void>;
   openIds(): string[];
+  /** Liga ou desliga a captura de rede da conta (gravação ligada ou desligada). */
+  refreshCapture(profileId: string): void;
   setLayout(mode: LayoutMode): void;
   /** Põe a conta em foco: é a que aparece no 1x1 e a que o turbo não desacelera. */
   select(profileId: string): void;
@@ -77,6 +82,8 @@ export class AppCore {
   private readonly recommendations = new Map<string, Recommendation[]>();
   private readonly actions: ActionRunner;
   private readonly alerts: Alert[] = [];
+  private readonly alertGate = new AlertGate();
+  private readonly meters = new Map<string, HuntMeter>();
   private timer: NodeJS.Timeout | undefined;
 
   constructor(
@@ -108,6 +115,7 @@ export class AppCore {
   async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.actions.stopAll();
+    for (const m of this.meters.values()) m.finish();
     for (const id of this.host.openIds()) await this.host.close(id);
   }
 
@@ -126,6 +134,10 @@ export class AppCore {
     await this.host.open(profile, game, {
       onCaptured: (ev) => this.onCaptured(profile, game, ev),
       onSnapshot: (snap) => this.onSnapshot(profile, game, snap),
+      network: {
+        active: () => this.recording.has(profile.id) || !!game.network,
+        wantsBody: (url) => this.recording.has(profile.id) || !!game.network?.http?.test(url),
+      },
     });
     this.rememberOpen();
   }
@@ -159,12 +171,42 @@ export class AppCore {
 
   private onCaptured(profile: Profile, game: GameModule, event: CapturedEvent): void {
     if (this.recording.has(profile.id)) this.store.record(profile.id, event);
+    // Jogo sem leitor de rede: o tráfego só é gravado, não vira estado.
+    if (!game.network) return;
     this.accept(profile, game.reader.onEvent(event, this.store.latestState(profile.id), profile.id));
+    if (game.reader.huntEvents) this.onHunt(profile, game.reader.huntEvents(event, profile.id));
+  }
+
+  private meter(profileId: string): HuntMeter {
+    let m = this.meters.get(profileId);
+    if (!m) {
+      m = new HuntMeter(profileId, (run) => this.store.addRun(run));
+      this.meters.set(profileId, m);
+    }
+    return m;
+  }
+
+  private onHunt(profile: Profile, events: HuntEvent[]): void {
+    if (events.length === 0) return;
+    const meter = this.meter(profile.id);
+    const level = this.store.latestState(profile.id)?.character.level;
+    for (const ev of events) {
+      if (ev.kind === 'notice') this.raise({ profileId: profile.id, kind: 'notice', key: ev.key, title: `${profile.label}: ${ev.title}`, body: ev.body, at: ev.at });
+      else meter.push(ev, level);
+    }
+  }
+
+  private raise(alert: Alert): void {
+    if (!this.alertGate.allow(alert)) return;
+    this.alerts.push(alert);
+    if (this.alerts.length > 100) this.alerts.shift();
+    this.emit('alert', alert);
   }
 
   private onSnapshot(profile: Profile, game: GameModule, snapshot: PageSnapshot): void {
     if (!game.pageReader) return;
     this.accept(profile, game.pageReader.onSnapshot(snapshot, this.store.latestState(profile.id), profile.id));
+    if (game.pageReader.huntEvents) this.onHunt(profile, game.pageReader.huntEvents(snapshot, profile.id));
   }
 
   private accept(profile: Profile, next: GameState | undefined): void {
@@ -172,16 +214,14 @@ export class AppCore {
     const prev = this.store.latestState(profile.id);
     this.store.pushState(next);
     this.emit('state', next);
-    for (const alert of detectAlerts(prev, next, profile.label)) {
-      this.alerts.push(alert);
-      if (this.alerts.length > 100) this.alerts.shift();
-      this.emit('alert', alert);
-    }
+    for (const alert of detectAlerts(prev, next, profile.label)) this.raise(alert);
   }
 
   private analyze(profile: Profile): Recommendation[] {
     const game = this.gameOf(profile);
-    const recs = game.analyzer?.analyze(this.store.getHistory(profile.id), this.store.getPrices(), Date.now()) ?? [];
+    const now = Date.now();
+    const ctx = { run: this.meters.get(profile.id)?.view(now).run, runs: this.store.listRuns(profile.id), state: this.store.latestState(profile.id) };
+    const recs = game.analyzer?.analyze(this.store.getHistory(profile.id), this.store.getPrices(), now, ctx) ?? [];
     this.recommendations.set(profile.id, recs);
     this.emit('recommendations', { profileId: profile.id, recommendations: recs });
     return recs;
@@ -231,6 +271,7 @@ export class AppCore {
     },
 
     'profiles:close': async (id: string) => {
+      this.meters.get(id)?.finish();
       await this.host.close(id);
       this.rememberOpen();
     },
@@ -345,10 +386,21 @@ export class AppCore {
     'record:set': (id: string, on: boolean) => {
       if (on) this.recording.add(id);
       else this.recording.delete(id);
+      this.host.refreshCapture(id);
       return this.store.recordingsDir();
     },
 
     'state:get': (id: string) => this.store.latestState(id),
+
+    'hunt:get': (id: string) => this.meter(id).view(Date.now()),
+    'hunt:pause': (id: string, paused: boolean) => {
+      this.meter(id).setPaused(!!paused, Date.now());
+      return this.meter(id).view(Date.now());
+    },
+    'hunt:reset': (id: string) => {
+      this.meter(id).reset(Date.now());
+      return this.meter(id).view(Date.now());
+    },
 
     'alerts:list': () => [...this.alerts].reverse(),
 

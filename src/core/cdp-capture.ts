@@ -4,7 +4,7 @@
 import type { CapturedEvent } from '../sdk/types';
 
 const TEXT_MIME = /json|text|javascript/i;
-const MAX_BODY = 2_000_000;
+const MAX_BODY = 8_000_000;
 
 export type SendCommand = (method: string, params?: Record<string, unknown>) => Promise<any>;
 
@@ -23,6 +23,8 @@ export function createCaptureHandler(
   hosts: string[],
   send: SendCommand,
   onEvent: (event: CapturedEvent) => void,
+  /** Só pede ao navegador o corpo das respostas que alguém vai ler; copiar todas pesa na memória. */
+  wantsBody: (url: string) => boolean = () => true,
 ): (method: string, params: any) => void {
   const pending = new Map<string, { url: string; status: number; mime: string }>();
   const sockets = new Map<string, string>(); // requestId -> url do WebSocket
@@ -31,7 +33,7 @@ export function createCaptureHandler(
     switch (method) {
       case 'Network.responseReceived': {
         const { requestId, response } = params;
-        if (hostMatches(response.url, hosts) && TEXT_MIME.test(response.mimeType ?? '')) {
+        if (hostMatches(response.url, hosts) && TEXT_MIME.test(response.mimeType ?? '') && wantsBody(response.url)) {
           pending.set(requestId, { url: response.url, status: response.status, mime: response.mimeType });
         }
         break;
@@ -77,4 +79,6 @@ export function createCaptureHandler(
   };
 }
 
-export const NETWORK_ENABLE_PARAMS = { maxResourceBufferSize: 10_000_000, maxTotalBufferSize: 50_000_000 };
+// Buffer pequeno: o Chromium guarda as respostas recentes da aba aqui, e com 50 MB por conta a
+// memória subia à toa. 8 MB cabem o maior catálogo dos jogos (lista de criaturas do Poke).
+export const NETWORK_ENABLE_PARAMS = { maxResourceBufferSize: 8_000_000, maxTotalBufferSize: 16_000_000 };

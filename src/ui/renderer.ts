@@ -40,6 +40,7 @@ interface UiState {
 
 interface UiRecommendation {
   id: string;
+  kind?: 'farm' | 'venda' | 'compra' | 'alerta';
   title: string;
   detail: string;
   score: number;
@@ -174,6 +175,9 @@ interface Window {
     getState(id: string): Promise<UiState | undefined>;
     listAlerts(): Promise<UiAlert[]>;
     getRecommendations(id: string): Promise<UiRecommendation[]>;
+    getHunt(id: string): Promise<UiHunt>;
+    pauseHunt(id: string, paused: boolean): Promise<UiHunt>;
+    resetHunt(id: string): Promise<UiHunt>;
     compareHunts(id: string, opts: { allAccounts: boolean; nearLevel: boolean }): Promise<UiHuntComparison | undefined>;
     getPrices(): Promise<UiPrices>;
     setPrices(prices: UiPrices): Promise<void>;
@@ -182,6 +186,27 @@ interface Window {
     ask(id: string, question: string): Promise<string>;
     on(channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update', listener: (payload: any) => void): void;
   };
+}
+
+interface UiHuntRun {
+  place?: string;
+  activeMs: number;
+  kills: number;
+  xp: number;
+  damage: number;
+  lootValue: number;
+  waste: number;
+  catches: number;
+  catchTries: number;
+  shinies: number;
+  loot: Record<string, { qty: number; value: number }>;
+  spent: Record<string, { qty: number; value: number }>;
+}
+
+interface UiHunt {
+  status: 'fora' | 'caçando' | 'parado' | 'pausado';
+  run?: UiHuntRun;
+  perHour?: { xp: number; loot: number; waste: number; profit: number; kills: number; damage: number };
 }
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -689,9 +714,15 @@ function renderRecs(recs: UiRecommendation[]): void {
     ul.append(el('li', 'muted', 'Sem dados suficientes ainda. Cada caça precisa de pelo menos 5 minutos medidos.'));
     return;
   }
-  for (const r of recs) {
-    const li = el('li', r.id === 'idle-alert' ? 'rec alert' : 'rec');
-    li.append(el('div', 'title', r.title), el('div', undefined, r.detail));
+  const order = ['alerta', 'farm', 'venda', 'compra'];
+  const sorted = [...recs].sort((a, b) => order.indexOf(a.kind ?? 'farm') - order.indexOf(b.kind ?? 'farm'));
+  for (const r of sorted) {
+    const alertLike = r.kind === 'alerta' || r.id === 'idle-alert';
+    const li = el('li', alertLike ? 'rec alert' : `rec ${r.kind ?? ''}`);
+    const title = el('div', 'title');
+    if (r.kind && !alertLike) title.append(el('span', `tag ${r.kind}`, r.kind === 'farm' ? 'Farm' : r.kind === 'venda' ? 'Venda' : 'Compra'));
+    title.append(document.createTextNode(r.title));
+    li.append(title, el('div', undefined, r.detail));
     if (r.action && selectedId) {
       const b = el('button', undefined, 'Executar');
       const id = selectedId;
@@ -774,6 +805,84 @@ async function renderHunts(): Promise<void> {
   if (data.recent.length === 0) sessions.append(el('li', 'muted', 'Nenhuma sessão ainda.'));
 }
 
+// Analyzer de hunt da conta selecionada: começa sozinho quando a conta entra numa caça.
+const HUNT_LABEL: Record<UiHunt['status'], string> = { fora: 'Fora de hunt', caçando: 'Caçando', parado: 'Parado', pausado: 'Pausado' };
+let huntPaused = false;
+
+function short(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${(n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}M`;
+  if (a >= 1e4) return `${(n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`;
+  return Math.round(n).toLocaleString('pt-BR');
+}
+
+function clock(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function renderHunt(h: UiHunt): void {
+  huntPaused = h.status === 'pausado';
+  const status = $('hunt-status');
+  status.textContent = HUNT_LABEL[h.status];
+  status.dataset.status = h.status;
+  $('hunt-place').textContent = h.run?.place ?? '';
+  $('hunt-time').textContent = h.run ? clock(h.run.activeMs) : '';
+  $('hunt-pause').textContent = huntPaused ? 'Continuar' : 'Pausar';
+  const stats = $('hunt-stats');
+  stats.replaceChildren();
+  const loot = $<HTMLUListElement>('hunt-loot');
+  loot.replaceChildren();
+  const r = h.run;
+  if (!r) {
+    stats.append(el('p', 'muted', 'Começa sozinho quando a conta entra numa caça.'));
+    return;
+  }
+  const ph = h.perHour;
+  const cell = (label: string, total: string, rate?: string, cls?: string) => {
+    const c = el('div', `stat ${cls ?? ''}`);
+    c.append(el('span', 'label', label), el('b', undefined, total), el('span', 'rate', rate ?? ''));
+    stats.append(c);
+  };
+  cell('XP', short(r.xp), ph ? `${short(ph.xp)}/h` : '');
+  cell('Loot', short(r.lootValue), ph ? `${short(ph.loot)}/h` : '');
+  cell('Gasto', short(r.waste), ph ? `${short(ph.waste)}/h` : '');
+  const profit = r.lootValue - r.waste;
+  cell('Lucro', short(profit), ph ? `${short(ph.profit)}/h` : '', profit >= 0 ? 'good' : 'bad');
+  cell('Abates', short(r.kills), ph ? `${short(ph.kills)}/h` : '');
+  if (r.catchTries > 0) cell('Capturas', `${r.catches}/${r.catchTries}`, r.shinies ? `${r.shinies} shiny` : '');
+  else if (r.damage > 0) cell('Dano', short(r.damage), ph ? `${short(ph.damage)}/h` : '');
+  const items = Object.entries(r.loot).sort((a, b) => b[1].value - a[1].value).slice(0, 5);
+  for (const [name, v] of items) {
+    const li = el('li');
+    li.append(el('span', undefined, `${name} ×${short(v.qty)}`), el('b', undefined, short(v.value)));
+    loot.append(li);
+  }
+  const spent = Object.entries(r.spent).sort((a, b) => b[1].value - a[1].value).slice(0, 3);
+  for (const [name, v] of spent) {
+    const li = el('li', 'spent');
+    li.append(el('span', undefined, `${name} ×${short(v.qty)}`), el('b', undefined, `−${short(v.value)}`));
+    loot.append(li);
+  }
+}
+
+async function refreshHunt(): Promise<void> {
+  const id = selectedId;
+  if (!id || $('detail').hidden) return;
+  const h = await window.api.getHunt(id);
+  if (id === selectedId) renderHunt(h);
+}
+
+function initHunt(): void {
+  $('hunt-pause').addEventListener('click', async () => {
+    if (selectedId) renderHunt(await window.api.pauseHunt(selectedId, !huntPaused));
+  });
+  $('hunt-reset').addEventListener('click', async () => {
+    if (selectedId) renderHunt(await window.api.resetHunt(selectedId));
+  });
+  setInterval(() => void refreshHunt(), 2000);
+}
+
 let currentGameId: string | undefined;
 
 async function select(id: string): Promise<void> {
@@ -788,6 +897,7 @@ async function select(id: string): Promise<void> {
   title.style.setProperty('--acc', colorOf(p.id));
   title.replaceChildren(el('i', 'dot'), el('span', undefined, p.label), el('span', 'pill', game?.name ?? p.gameId));
   renderState(await window.api.getState(id));
+  renderHunt(await window.api.getHunt(id));
   renderRecs(await window.api.getRecommendations(id));
   await renderHunts();
   const auto = $<HTMLInputElement>('automation');
@@ -980,6 +1090,7 @@ async function init(): Promise<void> {
   window.api.on('log', (entry: { profileId: string; message: string }) => console.log('[automação]', entry.profileId, entry.message));
 
   renderAlerts(await window.api.listAlerts());
+  initHunt();
   await renderProfiles();
   syncSettings(await window.api.getSettings());
   window.api.on('update', (u: UiUpdate) => renderUpdate(u));

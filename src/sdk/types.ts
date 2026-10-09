@@ -41,8 +41,12 @@ export interface ActionRequest {
   params: Record<string, unknown>;
 }
 
+export type RecommendationKind = 'farm' | 'venda' | 'compra' | 'alerta';
+
 export interface Recommendation {
   id: string;
+  /** Farm (onde caçar), venda, compra ou alerta; a interface agrupa por isso. */
+  kind?: RecommendationKind;
   title: string;
   detail: string;
   /** Valor usado para ordenar (maior é melhor). */
@@ -70,6 +74,51 @@ export interface PriceQuote {
 export interface StateReader {
   /** Recebe um evento de rede e devolve o novo estado, ou undefined se o evento não muda nada. */
   onEvent(event: CapturedEvent, previous: GameState | undefined, profileId: string): GameState | undefined;
+  /** Fatos de caça no mesmo evento (abate, loot, gasto), para o analyzer de hunt. */
+  huntEvents?(event: CapturedEvent, profileId: string): HuntEvent[];
+}
+
+/**
+ * Um fato da caça, já com valor em ouro quando o jogo informa preço. O analyzer de hunt só soma
+ * isto; cada jogo traduz o próprio tráfego ou texto para estes fatos.
+ */
+export type HuntEvent =
+  | { kind: 'enter'; at: number; place: string }
+  | { kind: 'kill'; at: number; xp: number; name?: string; shiny?: boolean }
+  | { kind: 'loot'; at: number; name: string; qty: number; value: number }
+  | { kind: 'spend'; at: number; name: string; qty: number; value: number }
+  | { kind: 'catch'; at: number; name?: string; success: boolean; shiny?: boolean }
+  | { kind: 'damage'; at: number; amount: number }
+  /** Algo que a pessoa precisa saber já (ex.: acabou a pokébola do auto-catch). */
+  | { kind: 'notice'; at: number; key: string; title: string; body: string };
+
+/** Totais de uma caçada, do começo até agora (ou até acabar). */
+export interface HuntRun {
+  profileId: string;
+  place?: string;
+  start: number;
+  /** Último fato de caça recebido. */
+  last: number;
+  /** Tempo caçando de verdade: pausas e paradas longas não contam. */
+  activeMs: number;
+  kills: number;
+  xp: number;
+  damage: number;
+  lootValue: number;
+  waste: number;
+  catches: number;
+  catchTries: number;
+  shinies: number;
+  loot: Record<string, { qty: number; value: number }>;
+  spent: Record<string, { qty: number; value: number }>;
+  level?: number;
+}
+
+/** O que o analyzer recebe além do histórico: a caçada atual e as anteriores. */
+export interface AnalyzeContext {
+  run?: HuntRun;
+  runs: HuntRun[];
+  state?: GameState;
 }
 
 /** Texto visível da página do jogo, lido sem agir nela. */
@@ -85,11 +134,14 @@ export interface PageReader {
   /** Onde fica o log de combate e cada linha dele (seletores CSS). */
   logContainer?: string;
   logLine?: string;
+  /** Partes da página cujo texto não conta (chat), seletor CSS. */
+  ignore?: string;
   onSnapshot(snapshot: PageSnapshot, previous: GameState | undefined, profileId: string): GameState | undefined;
+  huntEvents?(snapshot: PageSnapshot, profileId: string): HuntEvent[];
 }
 
 export interface Analyzer {
-  analyze(history: GameState[], prices: PriceBook, now: number): Recommendation[];
+  analyze(history: GameState[], prices: PriceBook, now: number, ctx?: AnalyzeContext): Recommendation[];
 }
 
 export interface ActorContext {
@@ -174,6 +226,11 @@ export interface GameRole {
 
 export interface GameModule {
   manifest: GameManifest;
+  /**
+   * O que o leitor de rede usa. Sem isto, a rede da conta só é acompanhada enquanto a gravação
+   * está ligada. `http`: respostas cujo corpo é copiado; `ws`: mensagens de WebSocket.
+   */
+  network?: { http?: RegExp; ws?: boolean };
   reader: StateReader;
   pageReader?: PageReader;
   analyzer?: Analyzer;

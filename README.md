@@ -24,6 +24,10 @@ Testes: `npm test`.
 3. Jogue com a aba aberta. O painel mostra o estado lido, as recomendações e o assistente.
 4. Em **Preços**, informe quantos reais valem 1.000 de ouro para ver o lucro em R$/h.
 5. **Grade** mostra todas as contas abertas lado a lado.
+6. Ao clicar numa conta, o **analyzer de hunt** aparece no painel: começa sozinho quando a conta entra numa caça e mostra XP, loot, gasto e lucro por hora, com **Pausar** e **Resetar**. No Poke Idle World ele lê abates, loot, capturas e poções; no Huntera, o log de combate.
+7. As recomendações vêm separadas em **Farm**, **Venda** e **Compra**: melhores caças medidas, caças do seu nível com mais loot pelo catálogo do jogo, tipo do dia, loot que vale vender e pokébolas ou poções que vão acabar.
+
+O app só lê o jogo e recomenda; não clica nem joga por você. A rede de cada conta só é acompanhada quando o jogo tem leitor de rede (Poke) ou quando a gravação está ligada, e as contas escondidas rodam em segundo plano, para gastar menos memória.
 
 ## Mapear o protocolo do Huntera
 

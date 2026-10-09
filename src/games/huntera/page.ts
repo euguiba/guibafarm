@@ -5,7 +5,7 @@
 // combate do HunteraPartyAnalyzer (redslugah). Os de morte ainda não foram vistos
 // num log real e podem precisar de ajuste.
 
-import type { GameState, PageReader, PageSnapshot } from '../../sdk/types';
+import type { GameState, HuntEvent, PageReader, PageSnapshot } from '../../sdk/types';
 
 function near(text: string, anchor: RegExp, span: number, re: RegExp): string | undefined {
   const i = text.search(anchor);
@@ -84,9 +84,28 @@ export function parseLog(lines: string[]): LogTotals {
   return totals;
 }
 
+/** Fatos de caça das linhas novas do log de combate: cada XP ganha conta como um abate. */
+export function logHuntEvents(lines: string[], at: number): HuntEvent[] {
+  const out: HuntEvent[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    const xp = XP.map((re) => re.exec(line)).find(Boolean);
+    if (xp) {
+      out.push({ kind: 'kill', at, xp: Number(xp[1].replace(/[.,]/g, '')) });
+      continue;
+    }
+    const hit = DAMAGE.map((re) => re.exec(line)).find(Boolean);
+    if (hit) out.push({ kind: 'damage', at, amount: Number(hit[1].replace(/[.,]/g, '')) });
+  }
+  return out;
+}
+
 export const hunteraPageReader: PageReader = {
   logContainer: '.chat-combat-log',
   logLine: '.combat-text',
+  // Chat (inclusive o de combate, lido à parte linha a linha) fora do texto do painel.
+  ignore: '[class*="chat"], [class*="Chat"]',
+  huntEvents: (snap) => logHuntEvents(snap.logLines, snap.at),
   onSnapshot(snap: PageSnapshot, previous: GameState | undefined, profileId: string): GameState | undefined {
     const panel = parsePanel(snap.text);
     const log = parseLog(snap.logLines);

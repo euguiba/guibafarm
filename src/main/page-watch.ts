@@ -10,12 +10,23 @@ const WORLD_ID = 1999;
 const POLL_MS = 5_000;
 const MAX_TEXT = 20_000;
 
-function installScript(container: string | undefined, line: string | undefined): string {
+function installScript(container: string | undefined, line: string | undefined, ignore: string | undefined): string {
   return `(() => {
     if (window.__niWatch) return true;
     const buf = [];
     const container = ${JSON.stringify(container ?? null)};
     const line = ${JSON.stringify(line ?? null)};
+    const ignore = ${JSON.stringify(ignore ?? null)};
+    // Texto da página sem o chat: mensagens de outros jogadores não podem virar nível, morte
+    // ou desconexão da conta.
+    const pageText = () => {
+      let text = document.body ? document.body.innerText : '';
+      if (ignore) for (const el of document.querySelectorAll(ignore)) {
+        const t = el.innerText;
+        if (t && t.length > 3) text = text.split(t).join(' ');
+      }
+      return text;
+    };
     let observed = null;
     const textOf = (node) => {
       if (!(node instanceof Element)) return '';
@@ -39,7 +50,7 @@ function installScript(container: string | undefined, line: string | undefined):
     attach();
     setInterval(attach, 2000);
     window.__niWatch = {
-      read: () => ({ text: (document.body ? document.body.innerText : '').slice(0, ${MAX_TEXT}), logLines: buf.splice(0) }),
+      read: () => ({ text: pageText().slice(0, ${MAX_TEXT}), logLines: buf.splice(0) }),
     };
     return true;
   })()`;
@@ -52,7 +63,7 @@ export function watchPage(
   onSnapshot: (snap: PageSnapshot) => void,
 ): () => void {
   const install = () => {
-    wc.executeJavaScriptInIsolatedWorld(WORLD_ID, [{ code: installScript(reader.logContainer, reader.logLine) }]).catch(() => {});
+    wc.executeJavaScriptInIsolatedWorld(WORLD_ID, [{ code: installScript(reader.logContainer, reader.logLine, reader.ignore) }]).catch(() => {});
   };
   wc.on('dom-ready', install);
   // Página de erro (sem internet, servidor fora) mantém a URL do jogo; não ler nesse caso.

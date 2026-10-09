@@ -50,7 +50,12 @@ export function watchProcesses(): void {
   app.on('render-process-gone', (_e, wc, d) => log(`página caiu (${wc.getURL().slice(0, 80)}): ${d.reason} (código ${d.exitCode})`));
   // Memória do app de 5 em 5 minutos, para ver se algo cresce sem parar.
   setInterval(() => {
-    const kb = app.getAppMetrics().reduce((sum, m) => sum + m.memory.workingSetSize, 0);
-    log(`memória do app ${Math.round(kb / 1024)} MB em ${app.getAppMetrics().length} processos`);
+    const metrics = app.getAppMetrics();
+    const mb = (kb: number) => Math.round(kb / 1024);
+    const total = metrics.reduce((sum, m) => sum + m.memory.workingSetSize, 0);
+    const byType = new Map<string, number[]>();
+    for (const m of metrics) byType.set(m.type, [...(byType.get(m.type) ?? []), mb(m.memory.workingSetSize)]);
+    const detail = [...byType].map(([type, list]) => `${type} ${list.sort((a, b) => b - a).join('+')}`).join(', ');
+    log(`memória do app ${mb(total)} MB em ${metrics.length} processos (${detail})`);
   }, 5 * 60_000).unref();
 }

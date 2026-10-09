@@ -1,9 +1,10 @@
-// Registro dos módulos de jogo. Huntera é o piloto; os outros três abrem com
-// perfis isolados e leitor genérico, sem analisador nem automação por enquanto.
+// Registro dos módulos de jogo. Huntera e Poke Idle World têm leitor e analyzer; os outros
+// abrem com perfis isolados e só gravam o tráfego quando a gravação está ligada.
 
 import { readEvent, type FieldAliases } from '../sdk/json-fields';
 import type { GameManifest, GameModule } from '../sdk/types';
 import { huntera } from './huntera';
+import { pokeIdleWorld } from './poke';
 
 const GENERIC_FIELDS: FieldAliases = {
   name: ['name', 'username'],
@@ -23,20 +24,6 @@ function readOnlyModule(manifest: GameManifest): GameModule {
     },
   };
 }
-
-const pokeIdleWorld = readOnlyModule({
-  id: 'poke-idle-world',
-  name: 'Poke Idle World',
-  startUrl: 'https://poke.idleworld.online/login',
-  hosts: ['poke.idleworld.online'],
-  maxAccounts: 4,
-  policy: {
-    read: true,
-    recommend: true,
-    automate: false,
-    note: 'As regras proíbem programas, scripts e extensões sem permissão da staff, e macros. Limite de 4 contas.',
-  },
-});
 
 const levelingIdle = readOnlyModule({
   id: 'leveling-idle',

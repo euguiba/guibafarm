@@ -1,6 +1,6 @@
 {
   "name": "navegador-idle",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "description": "Navegador desktop para jogos idle: perfis isolados por conta, analisador por jogo, assistente e lucro por hora.",
   "main": "dist/main/main.js",
