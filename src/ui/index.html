@@ -62,6 +62,10 @@
         </div>
         <div id="hunt-stats" class="hunt-stats"></div>
         <ul id="hunt-loot" class="hunt-loot"></ul>
+        <div id="party" hidden>
+          <h4>Ranking das contas abertas</h4>
+          <ul id="party-list" class="party-list"></ul>
+        </div>
         <div class="row">
           <button id="hunt-pause" class="ghost small grow">Pausar</button>
           <button id="hunt-reset" class="ghost small grow">Resetar</button>
@@ -123,6 +127,7 @@
       </form>
       <div class="meter" title="Uso de CPU do app"><span>CPU</span><b id="m-cpu">—</b></div>
       <div class="meter" title="Memória usada pelo app"><span>RAM</span><b id="m-ram">—</b></div>
+      <button id="zen-btn" class="ghost" title="Modo zen: só os jogos na tela (Ctrl+Shift+Z). Encoste o mouse no topo para ver as barras.">Zen</button>
       <button id="turbo" class="toggle" title="Desacelera as telas fora de foco para sobrar desempenho para a que você está usando">Turbo <b>off</b></button>
       <button id="reload-all" class="ghost" title="Recarregar todas as contas abertas">⟳</button>
       <button id="update-btn" class="update-btn" hidden></button>
@@ -131,6 +136,7 @@
     <main id="stage"><div id="empty">Adicione uma conta e clique em Abrir.</div></main>
   </div>
   <div id="tile-layer"></div>
+  <div id="zen-strip" title="Mostrar as barras"></div>
 
   <div id="settings" class="modal" hidden>
     <div class="modal-card" role="dialog" aria-labelledby="settings-title">
@@ -166,6 +172,39 @@
         <div><b>Zoom das contas novas</b><span>Cada tela também tem − e + no cabeçalho para mudar o zoom só dela.</span></div>
         <div class="segmented" data-setting="defaultZoom">
           <button data-value="0.67">67%</button><button data-value="0.8">80%</button><button data-value="0.9">90%</button><button data-value="1">100%</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div><b>FPS da conta em foco</b><span>Quadros por segundo da tela que você está usando.</span></div>
+        <div class="segmented" data-setting="fpsFocused">
+          <button data-value="0">Livre</button><button data-value="60">60</button><button data-value="30">30</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div><b>FPS das outras contas</b><span>As telas fora de foco desenham menos vezes por segundo. O jogo segue rodando; só a imagem atualiza menos.</span></div>
+        <div class="segmented" data-setting="fpsOthers">
+          <button data-value="0">Livre</button><button data-value="30">30</button><button data-value="20">20</button><button data-value="10">10</button><button data-value="5">5</button>
+        </div>
+      </div>
+      <div class="setting">
+        <div><b>Menos animações</b><span>Pede às páginas para cortar efeitos de movimento, como a opção do Windows.</span></div>
+        <label class="switch"><input type="checkbox" id="set-motion" /><i></i></label>
+      </div>
+      <div class="setting">
+        <div><b>Abrir com o Windows</b><span>O app abre sozinho ao ligar o PC, com as contas que estavam abertas.</span></div>
+        <label class="switch"><input type="checkbox" id="set-login" /><i></i></label>
+      </div>
+      <div class="setting telegram">
+        <div><b>Resumo no Telegram</b><span>Manda XP, dano e lucro das contas caçando para o seu Telegram. Crie um bot com o @BotFather e cole o token; o chat é o seu id (o @userinfobot mostra).</span>
+          <div class="tg-fields">
+            <input id="tg-token" placeholder="Token do bot" spellcheck="false" />
+            <input id="tg-chat" placeholder="Id do chat" spellcheck="false" />
+            <select id="tg-every">
+              <option value="0">Só quando eu pedir</option><option value="15">A cada 15 min</option><option value="30">A cada 30 min</option><option value="60">A cada 1 hora</option><option value="120">A cada 2 horas</option>
+            </select>
+            <button id="tg-send" class="ghost small">Salvar e enviar agora</button>
+          </div>
+          <span id="tg-status" class="muted"></span>
         </div>
       </div>
       <div class="setting">

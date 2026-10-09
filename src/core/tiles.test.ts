@@ -28,3 +28,14 @@ test('barra de endereço aceita site, endereço completo ou busca', () => {
   assert.equal(toAddress('melhor hunt huntera'), 'https://www.google.com/search?q=melhor%20hunt%20huntera');
   assert.equal(toAddress('  '), undefined);
 });
+
+test('Split e 2x2 seguem a proporção arrastada, dentro dos limites', () => {
+  const [a, b] = computeCells('split', ['a', 'b'], 'a', AREA, { pad: 0, gap: 0, ratios: { col: 0.7, row: 0.5 } });
+  assert.equal(a.width, 700);
+  assert.equal(b.x, AREA.x + 700);
+  assert.equal(b.width, 300);
+  const cells = computeCells('2x2', ['a', 'b', 'c', 'd'], 'a', AREA, { pad: 0, gap: 0, ratios: { col: 0.95, row: 0.25 } });
+  assert.equal(cells[0].width, 800, 'limite de 80%');
+  assert.equal(cells[0].height, 150);
+  assert.equal(cells[2].y, AREA.y + 150);
+});

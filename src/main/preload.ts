@@ -37,6 +37,11 @@ contextBridge.exposeInMainWorld('api', {
   setRecording: invoke('record:set'),
   getState: invoke('state:get'),
   getHunt: invoke('hunt:get'),
+  getParty: invoke('party:get'),
+  sendTelegram: invoke('telegram:send'),
+  setRatios: invoke('ratios:set'),
+  setZen: invoke('zen:set'),
+  zenReveal: invoke('zen:reveal'),
   pauseHunt: invoke('hunt:pause'),
   resetHunt: invoke('hunt:reset'),
   listAlerts: invoke('alerts:list'),
@@ -47,7 +52,7 @@ contextBridge.exposeInMainWorld('api', {
   setAutomation: invoke('automation:set'),
   runAction: invoke('action:run'),
   ask: invoke('assistant:ask'),
-  on: (channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update', listener: (payload: unknown) => void) => {
+  on: (channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update' | 'shortcut', listener: (payload: unknown) => void) => {
     ipcRenderer.on(channel, (_e, payload) => listener(payload));
   },
 });

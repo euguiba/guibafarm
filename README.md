@@ -27,6 +27,13 @@ Testes: `npm test`.
 6. Ao clicar numa conta, o **analyzer de hunt** aparece no painel: começa sozinho quando a conta entra numa caça e mostra XP, loot, gasto e lucro por hora, com **Pausar** e **Resetar**. No Poke Idle World ele lê abates, loot, capturas e poções; no Huntera, o log de combate.
 7. As recomendações vêm separadas em **Farm**, **Venda** e **Compra**: melhores caças medidas, caças do seu nível com mais loot pelo catálogo do jogo, tipo do dia, loot que vale vender e pokébolas ou poções que vão acabar.
 
+Mais recursos:
+- **FPS por conta**: limite para a conta em foco e para as outras, e opção de menos animações (Configurações).
+- **Grade ajustável**: no Split e no 2x2, arraste a divisória entre as telas; a proporção fica salva por jogo. Clique duas vezes para voltar ao meio.
+- **Modo zen** (botão Zen ou Ctrl+Shift+Z): só os jogos na janela; encoste o mouse no topo para ver as barras.
+- **Ranking das contas abertas** no analyzer (dano no Huntera, XP no Poke) e **resumo no Telegram** com o seu bot.
+- **Abrir com o Windows**, já com as contas que estavam abertas.
+
 O app só lê o jogo e recomenda; não clica nem joga por você. A rede de cada conta só é acompanhada quando o jogo tem leitor de rede (Poke) ou quando a gravação está ligada, e as contas escondidas rodam em segundo plano, para gastar menos memória.
 
 ## Mapear o protocolo do Huntera

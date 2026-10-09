@@ -118,6 +118,9 @@ interface UiTile {
 interface UiTiles {
   mode: string;
   turbo: boolean;
+  zen: boolean;
+  zenReveal: boolean;
+  ratios: { col: number; row: number };
   selected?: string;
   open: number;
   overlay: boolean;
@@ -139,6 +142,23 @@ interface UiSettings {
   defaultZoom: number;
   gpu: boolean;
   streamMode: boolean;
+  fpsFocused: number;
+  fpsOthers: number;
+  reduceMotion: boolean;
+  openAtLogin: boolean;
+  zen: boolean;
+  telegram: { token: string; chatId: string; everyMin: number };
+}
+
+interface UiPartyRow {
+  id: string;
+  label: string;
+  status: string;
+  place?: string;
+  damage: number;
+  damageShare: number;
+  xpShare: number;
+  perHour?: { xp: number; profit: number; damage: number };
 }
 
 interface Window {
@@ -176,6 +196,11 @@ interface Window {
     listAlerts(): Promise<UiAlert[]>;
     getRecommendations(id: string): Promise<UiRecommendation[]>;
     getHunt(id: string): Promise<UiHunt>;
+    getParty(): Promise<UiPartyRow[]>;
+    sendTelegram(): Promise<string>;
+    setRatios(r: { col: number; row: number }): Promise<{ col: number; row: number }>;
+    setZen(on: boolean): Promise<void>;
+    zenReveal(on: boolean): Promise<void>;
     pauseHunt(id: string, paused: boolean): Promise<UiHunt>;
     resetHunt(id: string): Promise<UiHunt>;
     compareHunts(id: string, opts: { allAccounts: boolean; nearLevel: boolean }): Promise<UiHuntComparison | undefined>;
@@ -184,7 +209,7 @@ interface Window {
     setAutomation(id: string, on: boolean): Promise<boolean>;
     runAction(id: string, rec: UiRecommendation): Promise<string>;
     ask(id: string, question: string): Promise<string>;
-    on(channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update', listener: (payload: any) => void): void;
+    on(channel: 'state' | 'recommendations' | 'log' | 'alert' | 'tiles' | 'update' | 'shortcut', listener: (payload: any) => void): void;
   };
 }
 
@@ -558,7 +583,11 @@ function renderTiles(data: UiTiles): void {
   document.querySelectorAll<HTMLButtonElement>('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === data.mode));
   setTurboButton(data.turbo);
   $('empty').hidden = data.open > 0;
+  document.body.classList.toggle('zen', data.zen);
+  document.body.classList.toggle('zen-reveal', data.zen && data.zenReveal);
+  $('zen-btn').classList.toggle('on', data.zen);
   if (data.open === 0 || data.overlay) return;
+  addGridHandles(data);
   for (const t of data.tiles) {
     const frame = el('div', 'tile-frame');
     Object.assign(frame.style, { left: `${t.x}px`, top: `${t.y}px`, width: `${t.width}px`, height: `${t.height}px` });
@@ -617,6 +646,47 @@ function renderTiles(data: UiTiles): void {
     if (t.focused && document.activeElement !== $('url-input')) $<HTMLInputElement>('url-input').value = t.url ?? '';
   }
   void pollMetrics();
+}
+
+// Divisórias arrastáveis entre as telas (Split e 2x2); a proporção fica salva por página de jogo.
+function addGridHandles(data: UiTiles): void {
+  if ((data.mode !== 'split' && data.mode !== '2x2') || data.tiles.length < 2) return;
+  const t = data.tiles;
+  const first = t[0];
+  const last = t[t.length - 1];
+  const left = first.x;
+  const top = first.y;
+  const width = last.x + last.width - left;
+  const height = last.y + last.height - top;
+  const make = (dir: 'col' | 'row') => {
+    const h = el('div', `grid-handle ${dir}`);
+    if (dir === 'col') Object.assign(h.style, { left: `${first.x + first.width}px`, top: `${top}px`, height: `${height}px` });
+    else Object.assign(h.style, { top: `${first.y + first.height}px`, left: `${left}px`, width: `${width}px` });
+    h.title = 'Arraste para mudar o tamanho das telas · clique duas vezes para voltar ao meio';
+    h.addEventListener('dblclick', () => void window.api.setRatios({ ...data.ratios, [dir]: 0.5 }));
+    h.addEventListener('pointerdown', (ev) => {
+      ev.preventDefault();
+      h.setPointerCapture(ev.pointerId);
+      h.classList.add('dragging');
+      let pending: number | undefined;
+      const move = (e: PointerEvent) => {
+        const ratio = dir === 'col' ? (e.clientX - left) / width : (e.clientY - top) / height;
+        if (pending) cancelAnimationFrame(pending);
+        pending = requestAnimationFrame(() => void window.api.setRatios({ ...data.ratios, [dir]: ratio }));
+      };
+      const up = () => {
+        h.removeEventListener('pointermove', move);
+        h.removeEventListener('pointerup', up);
+        h.removeEventListener('pointercancel', up);
+      };
+      h.addEventListener('pointermove', move);
+      h.addEventListener('pointerup', up);
+      h.addEventListener('pointercancel', up);
+    });
+    $('tile-layer').append(h);
+  };
+  make('col');
+  if (data.mode === '2x2') make('row');
 }
 
 function setTurboButton(on: boolean): void {
@@ -869,8 +939,28 @@ function renderHunt(h: UiHunt): void {
 async function refreshHunt(): Promise<void> {
   const id = selectedId;
   if (!id || $('detail').hidden) return;
-  const h = await window.api.getHunt(id);
-  if (id === selectedId) renderHunt(h);
+  const [h, party] = await Promise.all([window.api.getHunt(id), window.api.getParty()]);
+  if (id !== selectedId) return;
+  renderHunt(h);
+  renderParty(party);
+}
+
+// Ranking das contas abertas da página: quem mais causa dano (Huntera) ou rende XP e lucro.
+function renderParty(rows: UiPartyRow[]): void {
+  $('party').hidden = rows.length < 2;
+  const ul = $<HTMLUListElement>('party-list');
+  ul.replaceChildren();
+  const byDamage = rows.some((r) => r.damage > 0);
+  rows.forEach((r, i) => {
+    const li = el('li', r.id === selectedId ? 'me' : '');
+    const share = byDamage ? r.damageShare : r.xpShare;
+    const bar = el('i', 'bar');
+    bar.style.width = `${Math.max(2, Math.min(100, share))}%`;
+    const ph = r.perHour;
+    const rate = byDamage ? `${short(ph?.damage ?? 0)} dano/h` : `${short(ph?.xp ?? 0)} XP/h`;
+    li.append(el('span', 'pos', `${i + 1}.`), el('span', 'name acct-name', r.label), el('b', undefined, `${Math.round(share)}%`), el('span', 'rate', rate), bar);
+    ul.append(li);
+  });
 }
 
 function initHunt(): void {
@@ -928,6 +1018,11 @@ function syncSettings(s: UiSettings): void {
   $<HTMLInputElement>('set-turbo').checked = s.turbo;
   $<HTMLInputElement>('set-gpu').checked = s.gpu;
   $<HTMLInputElement>('set-stream').checked = s.streamMode;
+  $<HTMLInputElement>('set-motion').checked = s.reduceMotion;
+  $<HTMLInputElement>('set-login').checked = s.openAtLogin;
+  if (document.activeElement !== $('tg-token')) $<HTMLInputElement>('tg-token').value = s.telegram.token;
+  if (document.activeElement !== $('tg-chat')) $<HTMLInputElement>('tg-chat').value = s.telegram.chatId;
+  $<HTMLSelectElement>('tg-every').value = String(s.telegram.everyMin);
   document.body.classList.toggle('stream', s.streamMode);
   $('restart-note').hidden = s.gpu === gpuAtStart;
   setTurboButton(s.turbo);
@@ -950,6 +1045,15 @@ function initSettings(): void {
   $('set-stream').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ streamMode: (ev.target as HTMLInputElement).checked })));
   $('set-gpu').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ gpu: (ev.target as HTMLInputElement).checked })));
   $('relaunch').addEventListener('click', () => void window.api.relaunch());
+  $('set-motion').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ reduceMotion: (ev.target as HTMLInputElement).checked })));
+  $('set-login').addEventListener('change', async (ev) => syncSettings(await window.api.setSettings({ openAtLogin: (ev.target as HTMLInputElement).checked })));
+  const telegram = () => ({ token: $<HTMLInputElement>('tg-token').value, chatId: $<HTMLInputElement>('tg-chat').value, everyMin: Number($<HTMLSelectElement>('tg-every').value) });
+  $('tg-every').addEventListener('change', async () => syncSettings(await window.api.setSettings({ telegram: telegram() })));
+  $('tg-send').addEventListener('click', async () => {
+    await window.api.setSettings({ telegram: telegram() });
+    $('tg-status').textContent = 'Enviando...';
+    $('tg-status').textContent = await window.api.sendTelegram();
+  });
   document.querySelectorAll<HTMLButtonElement>('[data-preset]').forEach((b) =>
     b.addEventListener('click', async () => {
       const weak = b.dataset.preset === 'fraco';
@@ -1015,12 +1119,32 @@ async function init(): Promise<void> {
   $('cancel-add').addEventListener('click', () => showAddForm(false));
   $('edit-btn').addEventListener('click', () => ($('editor').hidden ? openEditor(selectedId ?? '') : closeEditor()));
   initSettings();
+  const toggleZen = () => void window.api.setZen(!document.body.classList.contains('zen'));
   document.addEventListener('keydown', (ev) => {
-    if (ev.ctrlKey && ev.key.toLowerCase() === 'b') {
+    if (ev.ctrlKey && !ev.shiftKey && ev.key.toLowerCase() === 'b') {
       ev.preventDefault();
       void setCollapsed(!document.body.classList.contains('collapsed'));
+    } else if (ev.ctrlKey && ev.shiftKey && ev.key.toLowerCase() === 'z') {
+      ev.preventDefault();
+      toggleZen();
     }
   });
+  window.api.on('shortcut', (key: string) => {
+    if (key === 'sidebar') void setCollapsed(!document.body.classList.contains('collapsed'));
+    if (key === 'zen') toggleZen();
+  });
+  $('zen-btn').addEventListener('click', toggleZen);
+  // Modo zen: encostar o mouse na faixa do topo mostra as barras; sair delas esconde de novo.
+  let hideTimer: number | undefined;
+  $('zen-strip').addEventListener('mouseenter', () => { clearTimeout(hideTimer); void window.api.zenReveal(true); });
+  for (const id of ['sidebar', 'topbar']) {
+    $(id).addEventListener('mouseenter', () => clearTimeout(hideTimer));
+    $(id).addEventListener('mouseleave', () => {
+      if (!document.body.classList.contains('zen-reveal')) return;
+      clearTimeout(hideTimer);
+      hideTimer = window.setTimeout(() => void window.api.zenReveal(false), 700);
+    });
+  }
   $('new-account').addEventListener('click', () => showAddForm(true));
   $('turbo').addEventListener('click', () => void window.api.setTurbo(!$('turbo').classList.contains('on')));
   $('reload-all').addEventListener('click', () => void window.api.reloadView());

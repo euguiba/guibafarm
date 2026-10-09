@@ -73,6 +73,17 @@ app.whenReady().then(() => {
     app.relaunch();
     app.quit();
   });
+  // Abrir com o Windows: só faz sentido no app instalado (no "npm start" abriria o Electron puro).
+  const syncLogin = () => {
+    if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: core.store.getSettings().openAtLogin });
+  };
+  const setSettings = core.handlers['settings:set'];
+  core.handlers['settings:set'] = (...args: unknown[]) => {
+    const out = setSettings(...args);
+    syncLogin();
+    return out;
+  };
+  syncLogin();
   for (const [channel, handler] of Object.entries(core.handlers)) {
     ipcMain.handle(channel, (_e, ...args) => handler(...args));
   }

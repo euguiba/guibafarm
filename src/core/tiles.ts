@@ -29,6 +29,31 @@ export interface Cell extends Rect {
 export interface TileOptions {
   pad: number;
   gap: number;
+  /** Fração da largura da primeira coluna e da altura da primeira linha (Split e 2x2). */
+  ratios?: Ratios;
+}
+
+export interface Ratios {
+  col: number;
+  row: number;
+}
+
+export const MIN_RATIO = 0.2;
+export const MAX_RATIO = 0.8;
+
+export function clampRatio(n: unknown): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? Math.min(MAX_RATIO, Math.max(MIN_RATIO, Math.round(v * 1000) / 1000)) : 0.5;
+}
+
+/** Tamanhos de cada coluna (ou linha): 2 divisões seguem a proporção; outras quantidades ficam iguais. */
+function sizes(total: number, count: number, ratio: number): number[] {
+  if (count === 2) {
+    const first = Math.floor(total * ratio);
+    return [first, total - first];
+  }
+  const each = Math.floor(total / count);
+  return Array.from({ length: count }, () => each);
 }
 
 /** Contas que aparecem na grade, na ordem em que foram abertas; a selecionada sempre entra. */
@@ -52,19 +77,15 @@ export function computeCells(
   const ids = visibleIds(mode, openIds, selected);
   const innerW = Math.max(0, area.width - 2 * opts.pad - (cols - 1) * opts.gap);
   const innerH = Math.max(0, area.height - 2 * opts.pad - (rows - 1) * opts.gap);
-  const cw = Math.floor(innerW / cols);
-  const ch = Math.floor(innerH / rows);
+  const ws = sizes(innerW, cols, clampRatio(opts.ratios?.col ?? 0.5));
+  const hs = sizes(innerH, rows, clampRatio(opts.ratios?.row ?? 0.5));
+  const xs = ws.map((_, c) => area.x + opts.pad + ws.slice(0, c).reduce((a, b) => a + b, 0) + c * opts.gap);
+  const ys = hs.map((_, r) => area.y + opts.pad + hs.slice(0, r).reduce((a, b) => a + b, 0) + r * opts.gap);
   const cells: Cell[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const c = i % cols;
     const r = Math.floor(i / cols);
-    cells.push({
-      x: area.x + opts.pad + c * (cw + opts.gap),
-      y: area.y + opts.pad + r * (ch + opts.gap),
-      width: cw,
-      height: ch,
-      profileId: ids[i],
-    });
+    cells.push({ x: xs[c], y: ys[r], width: ws[c], height: hs[r], profileId: ids[i] });
   }
   return cells;
 }

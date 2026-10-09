@@ -536,3 +536,34 @@ body.stream .acct-name:hover { filter: none; }
 .rec .tag.farm { color: var(--ok); }
 .rec .tag.venda { color: var(--gold); }
 .rec .tag.compra { color: var(--violet); }
+
+/* Divisórias arrastáveis da grade */
+.grid-handle { position: fixed; pointer-events: auto; z-index: 3; }
+.grid-handle.col { width: 6px; cursor: col-resize; }
+.grid-handle.row { height: 6px; cursor: row-resize; }
+.grid-handle::after { content: ''; position: absolute; inset: 0; margin: auto; border-radius: 3px; background: var(--edge); transition: background var(--ease); }
+.grid-handle.col::after { width: 2px; height: 40px; }
+.grid-handle.row::after { height: 2px; width: 40px; }
+.grid-handle:hover::after, .grid-handle.dragging::after { background: var(--gold); }
+
+/* Modo zen */
+#zen-strip { display: none; position: fixed; top: 0; left: 0; right: 0; height: 4px; z-index: 5; background: linear-gradient(90deg, transparent, rgba(224, 176, 74, 0.35), transparent); }
+body.zen:not(.zen-reveal) #sidebar, body.zen:not(.zen-reveal) #topbar { display: none; }
+body.zen:not(.zen-reveal) #zen-strip { display: block; }
+#zen-btn.on { color: var(--gold); border-color: rgba(224, 176, 74, 0.5); }
+
+/* Ranking das contas */
+#party h4 { margin: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--faint); }
+.party-list { list-style: none; margin: 0 0 8px; padding: 0; font-size: 12px; }
+.party-list li { position: relative; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; padding: 3px 0 5px; }
+.party-list li.me .name { color: var(--gold); }
+.party-list .pos { color: var(--faint); }
+.party-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.party-list .rate { color: var(--text2); font-variant-numeric: tabular-nums; }
+.party-list .bar { position: absolute; left: 24px; bottom: 1px; height: 2px; border-radius: 1px; background: var(--ok); opacity: 0.6; }
+
+/* Telegram */
+.setting.telegram { align-items: flex-start; }
+.tg-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.tg-fields input, .tg-fields select { min-width: 0; }
+#tg-status { display: block; margin-top: 6px; font-size: 12px; }

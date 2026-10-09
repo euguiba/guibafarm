@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import type { PageControl } from '../core/actions';
 import type { BrowserHost, PageFeeds, RenderOptions, ViewMetrics } from '../core/app-core';
 import type { Profile } from '../core/store';
-import { computeCells, type Cell, type LayoutMode } from '../core/tiles';
+import { computeCells, type Cell, type LayoutMode, type Ratios } from '../core/tiles';
 import type { GameModule } from '../sdk/types';
 import { attachCapture, type CaptureControl } from './capture';
 import { watchPage } from './page-watch';
@@ -21,6 +21,8 @@ export const SIDEBAR_COLLAPSED = 56;
 export const TOPBAR_HEIGHT = 52;
 /** Altura do cabeçalho de cada tela; igual ao CSS. */
 export const TILE_HEAD = 28;
+/** No modo zen, faixa no topo que fica da interface: encostar o mouse nela mostra as barras. */
+export const ZEN_STRIP = 4;
 const PAD = 6;
 const GAP = 6;
 /** No turbo, as telas fora de foco rodam o JavaScript nesta fração da velocidade. */
@@ -32,6 +34,34 @@ const MAX_AUTO_RELOADS = 3;
 
 /** Por quanto tempo um cookie de sessão (que o navegador apagaria ao fechar) fica guardado. */
 const KEEP_SESSION_COOKIES_DAYS = 30;
+
+/** Chave global (Symbol) onde a página lê o limite de quadros atual. */
+const FPS_KEY = 'navegadorIdle.fps';
+/**
+ * Limite de quadros: as animações da página (requestAnimationFrame) passam a rodar no máximo N
+ * vezes por segundo. Não clica nem lê nada; só espaça os quadros. Com 0, segue o ritmo normal.
+ */
+const FRAME_CAP_SCRIPT = `(() => {
+  const key = Symbol.for(${JSON.stringify(FPS_KEY)});
+  if (window[key] !== undefined) return;
+  window[key] = 0;
+  const raf = window.requestAnimationFrame.bind(window);
+  let queue = new Map(), next = 1, pending = 0, last = 0;
+  const tick = (ts) => {
+    pending = 0;
+    const fps = window[key] | 0;
+    if (fps > 0 && ts - last < 1000 / fps - 2) { pending = raf(tick); return; }
+    last = ts;
+    const run = queue; queue = new Map();
+    for (const cb of run.values()) { try { cb(ts); } catch (e) { setTimeout(() => { throw e; }); } }
+  };
+  window.requestAnimationFrame = function requestAnimationFrame(cb) {
+    const id = next++; queue.set(id, cb);
+    if (!pending) pending = raf(tick);
+    return id;
+  };
+  window.cancelAnimationFrame = function cancelAnimationFrame(id) { queue.delete(id); };
+})();`;
 
 /** sessionStorage de cada origem aberta na conta: alguns jogos guardam o login só ali. */
 type SessionSnapshot = Record<string, Record<string, string>>;
@@ -49,6 +79,8 @@ interface Entry {
   /** Resolução aplicada agora (1 = nativa). */
   scale: number;
   visible: boolean;
+  /** Limite de quadros aplicado agora (0 = sem limite). */
+  fps: number;
   crashes: number[];
   retries: number;
   retryTimer?: NodeJS.Timeout;
@@ -65,7 +97,7 @@ export interface TileInfo extends Cell {
   scale?: number;
 }
 
-export type HostChannel = 'tiles';
+export type HostChannel = 'tiles' | 'shortcut';
 
 export class ElectronHost implements BrowserHost {
   private entries = new Map<string, Entry>();
@@ -77,6 +109,9 @@ export class ElectronHost implements BrowserHost {
   private filter: Set<string> | undefined;
   private overlay = false;
   private render: RenderOptions = { resolution: 1, turboResolution: 0.5 };
+  private ratios: Ratios = { col: 0.5, row: 0.5 };
+  private zen = false;
+  private zenReveal = false;
 
   constructor(
     private readonly win: BaseWindow,
@@ -110,7 +145,7 @@ export class ElectronHost implements BrowserHost {
         if (game.pageReader) detach.push(watchPage(wc, game.manifest.hosts, game.pageReader, (snap) => feeds.onSnapshot(snap)));
       }
       const url = profile.url ?? game.manifest.startUrl;
-      const entry: Entry = { view, profile, game, detach, capture, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, crashes: [], retries: 0 };
+      const entry: Entry = { view, profile, game, detach, capture, url, muted: false, cpuRate: 1, zoom: profile.zoom ?? 1, scale: 1, visible: false, fps: 0, crashes: [], retries: 0 };
       this.entries.set(profile.id, entry);
       // Página que fechou sozinha (falta de memória, travamento) deixava a tela preta: recarrega.
       wc.on('render-process-gone', (_e, details) => {
@@ -128,6 +163,20 @@ export class ElectronHost implements BrowserHost {
       wc.on('did-finish-load', () => {
         wc.setZoomFactor(entry.zoom);
         entry.retries = 0;
+      });
+      // Página nova começa sem limite de quadros: reaplica o da conta.
+      wc.on('dom-ready', () => this.sendFps(wc, entry.fps));
+      // Atalhos do app funcionam também com o foco dentro do jogo.
+      wc.on('before-input-event', (ev, input) => {
+        if (input.type !== 'keyDown' || !input.control) return;
+        const key = input.key.toLowerCase();
+        if (key === 'b' && !input.shift) {
+          ev.preventDefault();
+          this.onUi('shortcut', 'sidebar');
+        } else if (key === 'z' && input.shift) {
+          ev.preventDefault();
+          this.onUi('shortcut', 'zen');
+        }
       });
       // Reconexão: página que não carregou (internet caiu, servidor fora) tenta de novo sozinha,
       // esperando cada vez mais (5 s, 15 s, 30 s, depois de minuto em minuto).
@@ -148,6 +197,7 @@ export class ElectronHost implements BrowserHost {
       });
       this.keepSessionCookies(wc.session);
       await this.restoreSession(profile.id, wc);
+      await this.installFrameCap(wc);
       void wc.loadURL(url);
     }
     this.selected = profile.id;
@@ -181,6 +231,41 @@ export class ElectronHost implements BrowserHost {
     }
   }
 
+  /** Deixa o limitador de quadros pronto para todas as páginas que a conta abrir. */
+  private async installFrameCap(wc: WebContents): Promise<void> {
+    try {
+      if (!wc.getURL()) await wc.loadURL('about:blank');
+      if (!wc.debugger.isAttached()) wc.debugger.attach('1.3');
+      await wc.debugger.sendCommand('Page.enable');
+      await wc.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: FRAME_CAP_SCRIPT });
+      if (this.render.reduceMotion) await wc.debugger.sendCommand('Emulation.setEmulatedMedia', REDUCED_MOTION);
+    } catch {
+      // sem depurador: a conta abre sem limite de quadros
+    }
+  }
+
+  private sendFps(wc: WebContents, fps: number): void {
+    if (wc.isDestroyed()) return;
+    sendCdp(wc, 'Runtime.evaluate', { expression: `window[Symbol.for(${JSON.stringify(FPS_KEY)})] = ${fps | 0}` });
+  }
+
+  setRatios(ratios: Ratios): void {
+    this.ratios = ratios;
+    this.layout();
+  }
+
+  setZen(on: boolean): void {
+    this.zen = on;
+    this.zenReveal = false;
+    this.layout();
+  }
+
+  setZenReveal(on: boolean): void {
+    if (!this.zen || this.zenReveal === on) return;
+    this.zenReveal = on;
+    this.layout();
+  }
+
   refreshCapture(profileId: string): void {
     this.entries.get(profileId)?.capture?.update();
   }
@@ -192,7 +277,13 @@ export class ElectronHost implements BrowserHost {
   }
 
   setRender(opts: RenderOptions): void {
+    const motionChanged = !!opts.reduceMotion !== !!this.render.reduceMotion;
     this.render = opts;
+    if (motionChanged) {
+      for (const entry of this.entries.values()) {
+        sendCdp(entry.view.webContents, 'Emulation.setEmulatedMedia', opts.reduceMotion ? REDUCED_MOTION : { features: [] });
+      }
+    }
     this.layout();
   }
 
@@ -398,8 +489,11 @@ export class ElectronHost implements BrowserHost {
 
   private cells(): Cell[] {
     const { width, height } = this.win.getContentBounds();
-    const area = { x: this.sidebar, y: TOPBAR_HEIGHT, width: Math.max(0, width - this.sidebar), height: Math.max(0, height - TOPBAR_HEIGHT) };
-    return computeCells(this.mode, this.shownIds(), this.selected, area, { pad: PAD, gap: GAP });
+    const bars = !this.zen || this.zenReveal;
+    const left = bars ? this.sidebar : 0;
+    const top = bars ? TOPBAR_HEIGHT : ZEN_STRIP;
+    const area = { x: left, y: top, width: Math.max(0, width - left), height: Math.max(0, height - top) };
+    return computeCells(this.mode, this.shownIds(), this.selected, area, { pad: bars ? PAD : 0, gap: GAP, ratios: this.ratios });
   }
 
   private layout(): void {
@@ -439,6 +533,11 @@ export class ElectronHost implements BrowserHost {
     // do Chrome: o jogo segue no servidor e a página gasta menos CPU e memória.
     wc.setBackgroundThrottling(!visible);
     wc.setAudioMuted(entry.muted || background);
+    const fps = (focused ? this.render.fpsFocused : this.render.fpsOthers) ?? 0;
+    if (fps !== entry.fps) {
+      entry.fps = fps;
+      this.sendFps(wc, fps);
+    }
     const rate = background ? TURBO_CPU_RATE : 1;
     if (rate !== entry.cpuRate) {
       entry.cpuRate = rate;
@@ -474,6 +573,9 @@ export class ElectronHost implements BrowserHost {
     this.onUi('tiles', {
       mode: this.mode,
       turbo: this.turbo,
+      zen: this.zen,
+      zenReveal: this.zenReveal,
+      ratios: this.ratios,
       selected: this.selected,
       open: this.shownIds().length,
       overlay: this.overlay,
@@ -481,6 +583,8 @@ export class ElectronHost implements BrowserHost {
     });
   }
 }
+
+const REDUCED_MOTION = { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] };
 
 function sendCdp(wc: WebContents, method: string, params: Record<string, unknown>): void {
   const dbg = wc.debugger;

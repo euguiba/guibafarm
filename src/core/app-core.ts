@@ -9,7 +9,7 @@ import { AlertGate, detectAlerts, type Alert } from './alerts';
 import { HuntMeter } from './hunt-meter';
 import { Assistant } from './assistant';
 import { Store, type Profile, type Settings } from './store';
-import { isLayoutMode, toAddress, type LayoutMode } from './tiles';
+import { clampRatio, isLayoutMode, toAddress, type LayoutMode, type Ratios } from './tiles';
 import { ICON_IDS, groupIcon, groupKey, groupLabel } from './groups';
 
 export type { LayoutMode } from './tiles';
@@ -40,6 +40,11 @@ export interface BrowserHost {
   setMuted(profileId: string, muted: boolean): void;
   setTurbo(on: boolean): void;
   setSidebarCollapsed(collapsed: boolean): void;
+  /** Proporção das colunas e linhas da grade (Split e 2x2) da página aberta. */
+  setRatios(ratios: Ratios): void;
+  /** Modo zen: só os jogos na janela; as barras aparecem ao encostar o mouse no topo. */
+  setZen(on: boolean): void;
+  setZenReveal(on: boolean): void;
   /** Só estas contas entram na grade (as da página de jogo aberta); as outras seguem rodando escondidas. */
   setFilter(profileIds: string[]): void;
   setRender(opts: RenderOptions): void;
@@ -55,9 +60,32 @@ export interface RenderOptions {
   resolution: number;
   /** Resolução das telas fora de foco quando o turbo está ligado. */
   turboResolution: number;
+  /** Limite de quadros por segundo da conta em foco e das outras (0 = sem limite). */
+  fpsFocused?: number;
+  fpsOthers?: number;
+  /** Pede às páginas menos animações (como a opção "reduzir movimento" do Windows). */
+  reduceMotion?: boolean;
 }
 
 const RESOLUTIONS = [1, 0.75, 0.5];
+const FPS_OPTIONS = [0, 60, 30, 20, 10, 5];
+const TELEGRAM_CHECK_MS = 60_000;
+
+function renderOf(s: Settings): RenderOptions {
+  return { resolution: s.resolution, turboResolution: s.turboResolution, fpsFocused: s.fpsFocused, fpsOthers: s.fpsOthers, reduceMotion: s.reduceMotion };
+}
+
+function short(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e6) return `${(n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}M`;
+  if (a >= 1e4) return `${(n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`;
+  return Math.round(n).toLocaleString('pt-BR');
+}
+
+function clock(ms: number): string {
+  const m = Math.floor(ms / 60_000);
+  return `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`;
+}
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 2;
 
@@ -85,6 +113,7 @@ export class AppCore {
   private readonly alertGate = new AlertGate();
   private readonly meters = new Map<string, HuntMeter>();
   private timer: NodeJS.Timeout | undefined;
+  private telegramTimer: NodeJS.Timeout | undefined;
 
   constructor(
     dataDir: string,
@@ -101,9 +130,17 @@ export class AppCore {
     if (isLayoutMode(settings.layout)) this.host.setLayout(settings.layout);
     this.host.setTurbo(settings.turbo);
     this.host.setSidebarCollapsed(settings.sidebarCollapsed);
-    this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
+    this.host.setRender(renderOf(settings));
+    this.host.setZen(settings.zen);
     this.applyFilter();
     if (opts.reopen !== false) void this.reopen(settings.openProfiles);
+    let lastTelegram = Date.now();
+    this.telegramTimer = setInterval(() => {
+      const { everyMin, token, chatId } = this.store.getSettings().telegram;
+      if (!everyMin || !token || !chatId || Date.now() - lastTelegram < everyMin * 60_000) return;
+      lastTelegram = Date.now();
+      void this.sendTelegram();
+    }, TELEGRAM_CHECK_MS);
     this.timer = setInterval(() => {
       for (const id of this.host.openIds()) {
         const profile = this.store.getProfile(id);
@@ -114,6 +151,7 @@ export class AppCore {
 
   async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
+    if (this.telegramTimer) clearInterval(this.telegramTimer);
     this.actions.stopAll();
     for (const m of this.meters.values()) m.finish();
     for (const id of this.host.openIds()) await this.host.close(id);
@@ -155,6 +193,7 @@ export class AppCore {
 
   private applyFilter(): void {
     const active = this.activeGroup();
+    this.host.setRatios((active && this.store.getSettings().ratios[active]) || { col: 0.5, row: 0.5 });
     this.host.setFilter(this.store.listProfiles().filter((p) => groupKey(p) === active).map((p) => p.id));
   }
 
@@ -215,6 +254,66 @@ export class AppCore {
     this.store.pushState(next);
     this.emit('state', next);
     for (const alert of detectAlerts(prev, next, profile.label)) this.raise(alert);
+  }
+
+  /** Ranking das contas abertas da página atual na caçada de agora (dano, XP e lucro por hora). */
+  private party() {
+    const active = this.activeGroup();
+    const now = Date.now();
+    const rows = this.host
+      .openIds()
+      .map((id) => this.store.getProfile(id))
+      .filter((p): p is Profile => !!p && groupKey(p) === active)
+      .map((p) => ({ id: p.id, label: p.label, view: this.meter(p.id).view(now) }))
+      .filter((r) => r.view.run);
+    const totalDamage = rows.reduce((s, r) => s + (r.view.run?.damage ?? 0), 0);
+    const totalXp = rows.reduce((s, r) => s + (r.view.run?.xp ?? 0), 0);
+    return rows
+      .map((r) => ({
+        id: r.id,
+        label: r.label,
+        status: r.view.status,
+        place: r.view.run?.place,
+        activeMs: r.view.run?.activeMs ?? 0,
+        damage: r.view.run?.damage ?? 0,
+        damageShare: totalDamage ? (r.view.run!.damage / totalDamage) * 100 : 0,
+        xpShare: totalXp ? (r.view.run!.xp / totalXp) * 100 : 0,
+        perHour: r.view.perHour,
+      }))
+      .sort((a, b) => b.damage - a.damage || (b.perHour?.xp ?? 0) - (a.perHour?.xp ?? 0));
+  }
+
+  /** Texto do resumo: uma linha por conta caçando agora. */
+  private summary(): string {
+    const lines: string[] = [];
+    for (const id of this.host.openIds()) {
+      const p = this.store.getProfile(id);
+      const v = this.meter(id).view(Date.now());
+      if (!p || !v.run) continue;
+      const ph = v.perHour;
+      const parts = [`XP ${short(v.run.xp)}${ph ? ` (${short(ph.xp)}/h)` : ''}`];
+      if (v.run.damage) parts.push(`dano ${short(v.run.damage)}${ph ? ` (${short(ph.damage)}/h)` : ''}`);
+      if (v.run.lootValue || v.run.waste) parts.push(`lucro ${short(v.run.lootValue - v.run.waste)}${ph ? ` (${short(ph.profit)}/h)` : ''}`);
+      parts.push(`${v.run.kills} abates`);
+      lines.push(`• ${p.label}${v.run.place ? ` em ${v.run.place}` : ''} · ${clock(v.run.activeMs)}\n  ${parts.join(' · ')}`);
+    }
+    return lines.length ? `Navegador Idle · resumo das caçadas\n${lines.join('\n')}` : 'Navegador Idle · nenhuma conta caçando agora.';
+  }
+
+  private async sendTelegram(): Promise<string> {
+    const { token, chatId } = this.store.getSettings().telegram;
+    if (!token || !chatId) return 'Informe o token do bot e o chat nas configurações.';
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: this.summary() }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string };
+      return body.ok ? 'Resumo enviado.' : `O Telegram recusou: ${body.description ?? res.status}`;
+    } catch (err) {
+      return `Não deu para falar com o Telegram: ${(err as Error).message}`;
+    }
   }
 
   private analyze(profile: Profile): Recommendation[] {
@@ -364,8 +463,19 @@ export class AppCore {
       if (Number(patch.defaultZoom) >= MIN_ZOOM && Number(patch.defaultZoom) <= MAX_ZOOM) next.defaultZoom = Number(patch.defaultZoom);
       if (typeof patch.gpu === 'boolean') next.gpu = patch.gpu;
       if (typeof patch.streamMode === 'boolean') next.streamMode = patch.streamMode;
+      if (FPS_OPTIONS.includes(Number(patch.fpsFocused))) next.fpsFocused = Number(patch.fpsFocused);
+      if (FPS_OPTIONS.includes(Number(patch.fpsOthers))) next.fpsOthers = Number(patch.fpsOthers);
+      if (typeof patch.reduceMotion === 'boolean') next.reduceMotion = patch.reduceMotion;
+      if (typeof patch.openAtLogin === 'boolean') next.openAtLogin = patch.openAtLogin;
+      if (patch.telegram && typeof patch.telegram === 'object') {
+        next.telegram = {
+          token: String(patch.telegram.token ?? '').trim(),
+          chatId: String(patch.telegram.chatId ?? '').trim(),
+          everyMin: [0, 15, 30, 60, 120].includes(Number(patch.telegram.everyMin)) ? Number(patch.telegram.everyMin) : 0,
+        };
+      }
       const settings = this.store.setSettings(next);
-      this.host.setRender({ resolution: settings.resolution, turboResolution: settings.turboResolution });
+      this.host.setRender(renderOf(settings));
       return settings;
     },
 
@@ -393,6 +503,21 @@ export class AppCore {
     'state:get': (id: string) => this.store.latestState(id),
 
     'hunt:get': (id: string) => this.meter(id).view(Date.now()),
+    'party:get': () => this.party(),
+    'telegram:send': async () => this.sendTelegram(),
+
+    'ratios:set': (ratios: { col: number; row: number }) => {
+      const active = this.activeGroup();
+      const r = { col: clampRatio(ratios?.col), row: clampRatio(ratios?.row) };
+      this.host.setRatios(r);
+      if (active) this.store.setSettings({ ratios: { ...this.store.getSettings().ratios, [active]: r } });
+      return r;
+    },
+    'zen:set': (on: boolean) => {
+      this.store.setSettings({ zen: !!on });
+      this.host.setZen(!!on);
+    },
+    'zen:reveal': (on: boolean) => this.host.setZenReveal(!!on),
     'hunt:pause': (id: string, paused: boolean) => {
       this.meter(id).setPaused(!!paused, Date.now());
       return this.meter(id).view(Date.now());

@@ -45,6 +45,19 @@ export interface Settings {
   streamMode: boolean;
   /** Contas que estavam abertas; voltam abertas na próxima vez que o app iniciar. */
   openProfiles: string[];
+  /** Limite de quadros por segundo da conta em foco e das outras (0 = sem limite). */
+  fpsFocused: number;
+  fpsOthers: number;
+  /** Pede às páginas menos animações. */
+  reduceMotion: boolean;
+  /** Modo zen: só os jogos na janela. */
+  zen: boolean;
+  /** Abrir o app junto com o Windows. */
+  openAtLogin: boolean;
+  /** Proporção da grade (Split e 2x2) de cada página de jogo. */
+  ratios: Record<string, { col: number; row: number }>;
+  /** Resumo das caçadas no Telegram: token do bot, chat e de quantos em quantos minutos (0 = só manual). */
+  telegram: { token: string; chatId: string; everyMin: number };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -59,6 +72,13 @@ export const DEFAULT_SETTINGS: Settings = {
   gpu: true,
   openProfiles: [],
   streamMode: false,
+  fpsFocused: 0,
+  fpsOthers: 20,
+  reduceMotion: true,
+  zen: false,
+  openAtLogin: false,
+  ratios: {},
+  telegram: { token: '', chatId: '', everyMin: 0 },
 };
 
 const HISTORY_LIMIT = 5_000; // estados em memória por perfil
